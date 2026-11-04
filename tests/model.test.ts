@@ -168,7 +168,7 @@ test("native Anthropic uses Messages structured JSON and preserves routing conte
     assert.equal(received.output_config.format.type, "json_schema");
     const schema = received.output_config.format.schema;
     assert.equal(schema.additionalProperties, false);
-    assert.equal(schema.properties.actions.items.anyOf.length, 8);
+    assert.equal(schema.properties.actions.items.anyOf.length, 10);
     assert.equal(schema.properties.actions.maxItems, undefined);
     assert.equal(
       schema.properties.actions.items.anyOf[1].properties.expectedRevision,

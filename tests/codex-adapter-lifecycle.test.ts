@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CodexAdapter } from "../packages/core/adapters/codex.js";
@@ -227,5 +227,174 @@ test("Codex resumes the original thread with only the new turn text", async () =
     assert.equal(terminal(f.events)[0].type, "completed");
   } finally {
     await f.close();
+  }
+});
+
+const inquiryFixture = String.raw`
+const fs=require('node:fs');
+const readline=require('node:readline');
+const mode=process.argv[2],log=process.argv[3];
+const send=m=>process.stdout.write(JSON.stringify(m)+'\n');
+readline.createInterface({input:process.stdin}).on('line',line=>{
+ const m=JSON.parse(line);fs.appendFileSync(log,JSON.stringify(m)+'\n');
+ if(!m.method)return;
+ let result={};
+ if(m.method==='mcpServerStatus/list'){
+  if(mode==='unsupported'){send({id:m.id,error:{message:'unsupported'}});return;}
+  result={data:[{name:'fixture_server',tools:m.params.threadId&&mode!=='retained'?{}:{write_fixture:{name:'write_fixture'}},toolsError:mode==='unverified'? 'catalog failed':null}],nextCursor:mode==='repeated-page'?'again':null};
+ }
+ if(m.method==='thread/fork'){
+  result={thread:{id:mode==='same-thread'?'original-thread':'inquiry-thread'},approvalPolicy:mode==='wrong-policy'?'on-request':'never',sandbox:{type:'readOnly',networkAccess:false}};
+ }
+ if(m.method==='turn/start'){
+  send({method:'item/agentMessage/delta',params:{threadId:'original-thread',turnId:'original-turn',delta:'PARENT OUTPUT'}});
+  result={turn:{id:'inquiry-turn'}};
+  send({id:m.id,result});
+  send({method:'turn/started',params:{threadId:'inquiry-thread',turn:{id:'inquiry-turn'}}});
+  send({id:'denied-approval',method:'item/fileChange/requestApproval',params:{threadId:'inquiry-thread',turnId:'inquiry-turn'}});
+  send({id:'denied-tool',method:'item/tool/call',params:{threadId:'inquiry-thread',turnId:'inquiry-turn',tool:'write_fixture'}});
+  send({method:'item/agentMessage/delta',params:{threadId:'inquiry-thread',turnId:'inquiry-turn',delta:'Commit confirmed: fixture-sha'}});
+  setTimeout(()=>send({method:'turn/completed',params:{threadId:'inquiry-thread',turn:{id:'inquiry-turn',status:'completed'}}}),30);
+  return;
+ }
+ if(m.id!==undefined)send({id:m.id,result});
+});`;
+test("Codex inquiry forks the original thread, gates inherited tools, and asks only the new question", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "acd-codex-inquiry-"));
+  const script = join(dir, "fixture.cjs"),
+    log = join(dir, "requests.jsonl");
+  await writeFile(script, inquiryFixture);
+  const events: AdapterEvent[] = [];
+  const task: Task = {
+    id: "inquiry",
+    title: "Verify",
+    goal: "OLD MUTATING GOAL",
+    pendingTurnText: "OLD EXTRA COMMAND",
+    agentId: agent.id,
+    cwd: dir,
+    status: "running",
+    revision: 1,
+    progress: "",
+    createdAt: "now",
+    updatedAt: "now",
+    inquiry: {
+      sourceId: "native-original",
+      sessionId: "original-thread",
+      question: "Was the commit pushed?",
+      turnId: "original-turn",
+    },
+  };
+  let handle: RunHandle | undefined;
+  try {
+    handle = await new CodexAdapter(
+      { executable: process.execPath, args: [script, "isolated", log] },
+      500,
+      100,
+    ).start({ task, agent, onEvent: (e) => events.push(e) });
+    await until(() => terminal(events).length > 0);
+    const requests = (await readFile(log, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const fork = requests.find((m) => m.method === "thread/fork"),
+      turn = requests.find((m) => m.method === "turn/start");
+    assert.equal(fork.params.threadId, "original-thread");
+    assert.equal(fork.params.lastTurnId, "original-turn");
+    assert.equal(fork.params.ephemeral, true);
+    assert.equal(fork.params.sandbox, "read-only");
+    assert.equal(fork.params.approvalPolicy, "never");
+    assert.equal(
+      fork.params.config["mcp_servers.fixture_server.enabled"],
+      false,
+    );
+    assert.equal(fork.params.config["features.shell_tool"], false);
+    assert.equal(fork.params.config["features.apps"], false);
+    assert.equal(fork.params.config["features.plugins"], false);
+    assert.equal(fork.params.config["features.multi_agent"], false);
+    assert.equal(turn.params.threadId, "inquiry-thread");
+    assert.equal(turn.params.approvalPolicy, "never");
+    assert.deepEqual(turn.params.sandboxPolicy, {
+      type: "readOnly",
+      networkAccess: false,
+    });
+    assert.ok(turn.params.input[0].text.includes("Was the commit pushed?"));
+    assert.ok(!JSON.stringify(turn.params).includes("OLD"));
+    assert.equal(
+      requests.filter((m) => m.method === "mcpServerStatus/list").length,
+      2,
+    );
+    assert.ok(
+      !requests.some((m) =>
+        ["thread/start", "thread/resume"].includes(m.method),
+      ),
+    );
+    assert.equal(
+      requests.find((m) => m.id === "denied-approval")?.result?.decision,
+      "decline",
+    );
+    assert.ok(requests.find((m) => m.id === "denied-tool")?.error);
+    assert.ok(!events.some((e) => e.type === "question"));
+    assert.equal(
+      events
+        .filter((e) => e.type === "output")
+        .map((e) => e.text)
+        .join(""),
+      "Commit confirmed: fixture-sha",
+    );
+    assert.deepEqual(
+      terminal(events).map((e) => e.type),
+      ["completed"],
+    );
+  } finally {
+    handle?.dispose();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("Codex inquiry fails before any turn when isolation is unsupported, tools remain, or the fork reuses the parent", async () => {
+  for (const mode of [
+    "unsupported",
+    "retained",
+    "same-thread",
+    "unverified",
+    "repeated-page",
+    "wrong-policy",
+  ]) {
+    const dir = await mkdtemp(join(tmpdir(), "acd-codex-inquiry-gate-"));
+    const script = join(dir, "fixture.cjs"),
+      log = join(dir, "requests.jsonl");
+    await writeFile(script, inquiryFixture);
+    try {
+      const task: Task = {
+        id: "q",
+        title: "Verify",
+        goal: "Verify",
+        agentId: agent.id,
+        cwd: dir,
+        status: "running",
+        revision: 1,
+        progress: "",
+        createdAt: "now",
+        updatedAt: "now",
+        inquiry: {
+          sourceId: "native-original",
+          sessionId: "original-thread",
+          question: "Was the commit pushed?",
+        },
+      };
+      await assert.rejects(
+        new CodexAdapter(
+          { executable: process.execPath, args: [script, mode, log] },
+          100,
+          100,
+        ).start({ task, agent, onEvent() {} }),
+      );
+      const requests = (await readFile(log, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      assert.ok(!requests.some((m) => m.method === "turn/start"));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 });

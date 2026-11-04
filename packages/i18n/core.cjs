@@ -148,6 +148,7 @@ module.exports = {
   "执行结果待确认，不自动重试。":
     "Execution result needs verification. No automatic retry.",
   "已取消等待。": "Waiting cancelled.",
+  "任务已结束，已有结果保留。": "Task closed. Existing results are retained.",
   "正在连接执行端，连接建立后立即请求停止。":
     "Connecting to the Agent. A stop will be requested as soon as it connects.",
   "未持有原执行连接，停止结果待确认。":
@@ -752,4 +753,36 @@ module.exports = {
     "This memory entry changed. Refresh and try again.",
   "已记住 {count} 条偏好，可以在设置的「个人记忆」中查看或修改。":
     "Remembered {count} preferences. View or edit them under Personal memory in Settings.",
+  "请先明确要核实的原任务，本次查询未执行其他操作。":
+    "Identify the original task to verify. This inquiry did not perform other operations.",
+  "历史记录未定位到可询问的执行来源，请指定原任务。":
+    "History did not identify an execution source to ask. Specify the original task.",
+  "本次仅核实原任务结果，请明确仍需确认的信息。":
+    "This inquiry only verifies the original result. Specify what still needs confirmation.",
+  "当前 Codex 协议或工具配置不支持安全核实，未开始追问。":
+    "The current Codex protocol or tool configuration does not support a safely isolated inquiry. No inquiry was started.",
+  "已查询历史记录，仍缺少足够的结果证据。请明确要核实的任务。":
+    "History was checked, but result evidence is still insufficient. Specify the task to verify.",
+  "请先查询并明确关联任务，再向执行 Agent 核实。":
+    "Search history and identify the associated task before asking its agent.",
+  "历史记录中有多个相关任务，请指定要向哪项任务的执行 Agent 核实。":
+    "History contains several related tasks. Specify which task's agent to ask.",
+  "原执行会话或 Agent 当前不可用，请明确要核实的任务。":
+    "The original session or agent is unavailable. Specify the task to verify.",
+  "原执行 Agent 暂不支持安全的历史核实，已保留历史查询结果。":
+    "The original agent does not support an isolated historical inquiry. The history results remain available.",
+  "核实 · {v0}": "Verify \u00b7 {v0}",
+  "已查阅历史，正在向 {v0} 核实这项任务的结果。":
+    "History has been checked. Asking {v0} to verify this task's result.",
+  "本次历史查询已结束，请明确要核实的任务。":
+    "This history lookup has finished. Specify the task to verify.",
+  "本次只核实先前执行结果，依据会话历史回答。不要重新执行原任务或发起写入、提交、推送等操作。":
+    "Verify the previous execution result using the conversation history. Do not repeat the original task or write files, commit, or push.",
+  原任务标题: "Original task title",
+  用户本轮问题: "Current user question",
+  待核实内容: "Information to verify",
+  "请明确区分已有执行证据、计划和仍不能确认的事项。":
+    "Distinguish execution evidence from plans and matters that remain unconfirmed.",
+  "核实仍在进行，请等待结果后再补充问题。":
+    "The inquiry is still running. Wait for its result before adding another question.",
 };

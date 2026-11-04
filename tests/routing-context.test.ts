@@ -296,3 +296,57 @@ test("a single explicitly addressed executor survives a shortened context when t
     assert.equal(a.type === "create" && a.requestedAgentId, want);
   }
 });
+
+test("a short follow-up keeps the latest native delivery as bounded source evidence", async () => {
+  const state = fixture([]);
+  state.messages = [
+    {
+      id: "native-report",
+      role: "assistant",
+      text: "Already pushed commit fixture-sha to feature/mvp.",
+      taskIds: [],
+      createdAt: at,
+      completion: {
+        id: "report",
+        nativeId: "native-fixture",
+        title: "打包并提交 GitHub",
+        status: "ready",
+        summary: "已推送 fixture-sha。",
+        assessed: true,
+      },
+    },
+  ];
+  const input = (await capture(state, "github提交了吗")).input;
+  assert.equal(input.recentReports.length, 1);
+  assert.equal(input.recentReports[0].sourceId, "native-fixture");
+  assert.match(input.recentReports[0].summary, /fixture-sha/);
+  const greeting = (await capture(state, "你好")).input;
+  assert.equal(greeting.recentReports.length, 0);
+});
+
+test("native report anchors exclude pending output, deduplicate sources and stay bounded", async () => {
+  const state = fixture([]);
+  state.messages = Array.from({ length: 20 }, (_, i) => ({
+    id: "report-" + i,
+    role: "assistant" as const,
+    text: "PRIVATE_FULL_BODY".repeat(1000),
+    taskIds: [],
+    createdAt: at,
+    completion: {
+      id: "completion-" + i,
+      nativeId: "native-" + (i % 3),
+      title: "GitHub " + i,
+      status: (i === 19 ? "pending" : "ready") as "pending" | "ready",
+      summary: "Public evidence " + i,
+      assessed: true,
+    },
+  }));
+  const input = (await capture(state, "github提交了吗")).input;
+  assert.equal(input.recentReports.length, 2);
+  assert.equal(
+    new Set(input.recentReports.map((r: any) => r.sourceId)).size,
+    2,
+  );
+  assert.ok(!input.recentReports.some((r: any) => r.messageId === "report-19"));
+  assert.ok(!JSON.stringify(input.recentReports).includes("PRIVATE_FULL_BODY"));
+});

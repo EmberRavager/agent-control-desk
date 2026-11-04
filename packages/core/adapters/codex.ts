@@ -131,6 +131,47 @@ export class CodexAdapter implements AgentAdapter {
           reject(error);
         }
       });
+    const mcpServers = async (id?: string) => {
+      const names = new Set<string>();
+      const cursors = new Set<string>();
+      let cursor: string | undefined;
+      let toolCount = 0;
+      for (let page = 0; page < 5; page++) {
+        const result = await rpc("mcpServerStatus/list", {
+          limit: 100,
+          detail: "toolsAndAuthOnly",
+          ...(id ? { threadId: id } : {}),
+          ...(cursor ? { cursor } : {}),
+        });
+        if (
+          !Array.isArray(result?.data) ||
+          result.data.length > 100 ||
+          (result.nextCursor !== null && typeof result.nextCursor !== "string")
+        )
+          throw Error("Codex did not provide a complete tool inventory.");
+        for (const server of result.data) {
+          if (
+            !server ||
+            typeof server.name !== "string" ||
+            !/^[A-Za-z0-9_-]{1,128}$/.test(server.name) ||
+            !server.tools ||
+            typeof server.tools !== "object" ||
+            Array.isArray(server.tools) ||
+            server.toolsError !== null
+          )
+            throw Error("Codex tool inventory could not be verified.");
+          names.add(server.name);
+          toolCount += Object.keys(server.tools).length;
+        }
+        if (names.size > 100) throw Error("Codex has too many tool servers.");
+        if (!result.nextCursor) return { names, toolCount };
+        if (cursors.has(result.nextCursor))
+          throw Error("Codex tool inventory pagination repeated.");
+        cursors.add(result.nextCursor);
+        cursor = result.nextCursor;
+      }
+      throw Error("Codex tool inventory exceeded the paging limit.");
+    };
     const rejectRequest = (message: Rpc) => {
       write({
         id: message.id,
@@ -169,6 +210,15 @@ export class CodexAdapter implements AgentAdapter {
         return;
       }
       if (message.id !== undefined && message.method) {
+        if (task.inquiry) {
+          if (
+            message.method === "item/commandExecution/requestApproval" ||
+            message.method === "item/fileChange/requestApproval"
+          )
+            write({ id: message.id, result: { decision: "decline" } });
+          else rejectRequest(message);
+          return;
+        }
         if (
           [
             "item/commandExecution/requestApproval",
@@ -326,6 +376,8 @@ export class CodexAdapter implements AgentAdapter {
     );
     const handle: RunHandle = {
       steer: async (text) => {
+        if (task.inquiry)
+          throw Error("An inquiry cannot receive new execution instructions.");
         if (terminal || disposed || !turnId)
           throw Error("No active Codex turn to steer.");
         await waitUntilStarted(this.timeoutMs);
@@ -400,18 +452,62 @@ export class CodexAdapter implements AgentAdapter {
       write({ method: "initialized", params: {} });
       const params = {
         cwd: task.cwd,
-        approvalPolicy: "on-request",
-        sandbox: "workspace-write",
+        approvalPolicy: task.inquiry ? "never" : "on-request",
+        sandbox: task.inquiry ? "read-only" : "workspace-write",
       };
-      const result = task.sessionId
-        ? await rpc("thread/resume", { threadId: task.sessionId, ...params })
-        : await rpc("thread/start", params);
+      let result;
+      if (task.inquiry) {
+        const inventory = await mcpServers();
+        result = await rpc("thread/fork", {
+          threadId: task.inquiry.sessionId,
+          ...(task.inquiry.turnId ? { lastTurnId: task.inquiry.turnId } : {}),
+          ...params,
+          ephemeral: true,
+          excludeTurns: true,
+          developerInstructions:
+            "This is a historical-result inquiry. Answer only from the inherited conversation. Do not execute the previous task or use tools. If history is insufficient, state what cannot be confirmed.",
+          config: {
+            ...Object.fromEntries(
+              [...inventory.names].map((name) => [
+                "mcp_servers." + name + ".enabled",
+                false,
+              ]),
+            ),
+            "features.shell_tool": false,
+            "features.apps": false,
+            "features.plugins": false,
+            "features.multi_agent": false,
+            "features.request_permissions_tool": false,
+            "features.code_mode.enabled": false,
+            "features.goals": false,
+            "features.hooks": false,
+            "features.memories": false,
+            web_search: "disabled",
+          },
+        });
+        if (
+          result?.thread?.id === task.inquiry.sessionId ||
+          result?.approvalPolicy !== "never" ||
+          result?.sandbox?.type !== "readOnly" ||
+          result?.sandbox?.networkAccess !== false
+        )
+          throw Error("Codex did not confirm an isolated read-only fork.");
+      } else
+        result = task.sessionId
+          ? await rpc("thread/resume", { threadId: task.sessionId, ...params })
+          : await rpc("thread/start", params);
       if (typeof result?.thread?.id !== "string" || !result.thread.id)
         throw Error("Codex did not return a thread identifier.");
-      if (task.sessionId && result.thread.id !== task.sessionId)
+      if (
+        !task.inquiry &&
+        task.sessionId &&
+        result.thread.id !== task.sessionId
+      )
         throw Error("Codex resumed a different thread.");
       threadId = result.thread.id;
       emit({ type: "session", sessionId: threadId });
+      if (task.inquiry && (await mcpServers(threadId)).toolCount)
+        throw Error("Codex retained tools in the inquiry fork.");
       phase = "starting";
       submitted = true;
       const turn = await rpc("turn/start", {
@@ -419,16 +515,20 @@ export class CodexAdapter implements AgentAdapter {
         input: [
           {
             type: "text",
-            text: (task.sessionId && task.pendingTurnText) || task.goal,
+            text: task.inquiry
+              ? task.inquiry.question
+              : (task.sessionId && task.pendingTurnText) || task.goal,
           },
         ],
         cwd: task.cwd,
-        approvalPolicy: "on-request",
-        sandboxPolicy: {
-          type: "workspaceWrite",
-          writableRoots: [task.cwd],
-          networkAccess: false,
-        },
+        approvalPolicy: task.inquiry ? "never" : "on-request",
+        sandboxPolicy: task.inquiry
+          ? { type: "readOnly", networkAccess: false }
+          : {
+              type: "workspaceWrite",
+              writableRoots: [task.cwd],
+              networkAccess: false,
+            },
       });
       if (typeof turn?.turn?.id !== "string" || !turn.turn.id)
         throw Error("Codex did not return a turn identifier.");
@@ -441,7 +541,9 @@ export class CodexAdapter implements AgentAdapter {
         "failed",
         submitted
           ? tr("Codex 未能确认任务开始，执行状态待核对。")
-          : tr("Codex 未能建立任务会话，请检查原生登录和配置。"),
+          : task.inquiry
+            ? tr("当前 Codex 协议或工具配置不支持安全核实，未开始追问。")
+            : tr("Codex 未能建立任务会话，请检查原生登录和配置。"),
       );
       dispose();
       throw error;

@@ -108,6 +108,7 @@ export async function startServer(
   ];
   const environment =
     options.deps || options.wechat || options.nativeRead ? "test" : "live";
+  let liveEvents: CodexLiveEvents | undefined;
   const token = randomBytes(32).toString("hex"),
     store = new Store(directory),
     runtime = new Runtime(
@@ -117,6 +118,9 @@ export async function startServer(
         verify: verifyAgent,
         adapter: createAdapter,
         vault: new SystemVault(),
+        nativeContext: (sessionId, turnId) =>
+          liveEvents?.context(sessionId, turnId) ||
+          Promise.resolve(emptyNativeContext()),
       },
       environment,
     );
@@ -126,7 +130,7 @@ export async function startServer(
     options.wechat?.client,
   );
   await wechat.init();
-  const liveEvents = new CodexLiveEvents(
+  liveEvents = new CodexLiveEvents(
     undefined,
     undefined,
     undefined,
@@ -135,7 +139,7 @@ export async function startServer(
   const reporter =
     !options.deps || options.deps.report
       ? new CompletionReporter(runtime, (sessionId, turnId) =>
-          liveEvents.context(sessionId, turnId),
+          liveEvents!.context(sessionId, turnId),
         )
       : undefined;
   const nativeRead: ReadNativeSessions =
@@ -145,7 +149,7 @@ export async function startServer(
         return await readCodexSessions(agent, cwd, signal);
       } catch {
         signal.throwIfAborted();
-        return liveEvents.read(agent, cwd, signal);
+        return liveEvents!.read(agent, cwd, signal);
       }
     });
   const observer =
@@ -185,7 +189,7 @@ export async function startServer(
       pending = (async () => {
         const context =
           observation.source === "run-events"
-            ? await liveEvents.context(session.sessionId, session.turnId)
+            ? await liveEvents!.context(session.sessionId, session.turnId)
             : emptyNativeContext();
         const fingerprint = createHash("sha256")
           .update(

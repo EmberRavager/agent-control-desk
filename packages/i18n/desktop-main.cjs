@@ -203,6 +203,7 @@ module.exports = {
   确认完成: "Confirm completion",
   补充要求: "Add requirements",
   停止任务: "Stop task",
+  结束任务: "Close task",
   "停止不会撤销已经产生的修改。结果无法确认时保留“状态待确认”。":
     "Stopping does not undo changes already made. Uncertain outcomes remain marked as “Status unconfirmed”.",
   模型接入: "Model connection",

@@ -4782,3 +4782,23 @@ dialog::backdrop {
 #settings-memory .settings-section-heading .button {
   flex-shrink: 0;
 }
+
+.task-detail[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.task-detail > .modal-head,
+.task-detail > .modal-footer,
+.task-detail > .scan-note {
+  flex-shrink: 0;
+}
+.task-detail-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+.task-detail > .modal-footer {
+  margin-top: 16px;
+  padding-top: 16px;
+}

@@ -73,6 +73,12 @@ export interface AgentConnection {
   };
 }
 export interface Task {
+  inquiry?: {
+    sourceId: string;
+    sessionId: string;
+    question: string;
+    turnId?: string;
+  };
   pendingTurnText?: string;
   followupQuestionId?: string;
   responseKind?: "answer" | "work";
@@ -268,6 +274,8 @@ export type Action =
     }
   | { type: "stop"; taskId: string; expectedRevision: number }
   | { type: "status"; taskIds: string[] }
+  | { type: "history"; query: string; sourceId?: string }
+  | { type: "ask_agent"; sourceId: string; question: string }
   | { type: "clarify"; text: string; taskIds: string[] };
 export interface RouteDecision {
   reply: string;

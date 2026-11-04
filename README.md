@@ -2,11 +2,11 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-[![Download for macOS Apple Silicon](https://img.shields.io/badge/macOS_Apple_Silicon-Download_DMG-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.8/Agent-Control-Desk-0.1.8-mac-arm64.dmg)
+[![Download for macOS Apple Silicon](https://img.shields.io/badge/macOS_Apple_Silicon-Download_DMG-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.9/Agent-Control-Desk-0.1.9-mac-arm64.dmg)
 
-[Download ZIP](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.8/Agent-Control-Desk-0.1.8-mac-arm64.zip) · [All releases](https://github.com/EmberRavager/agent-control-desk/releases)
+[Download ZIP](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.9/Agent-Control-Desk-0.1.9-mac-arm64.zip) · [All releases](https://github.com/EmberRavager/agent-control-desk/releases)
 
-v0.1.8 test release for Macs with Apple Silicon (M1 or later). The app is ad-hoc signed and has not been notarized by Apple.
+v0.1.9 test release for Macs with Apple Silicon (M1 or later). The app is ad-hoc signed and has not been notarized by Apple.
 
 **One conversation. All your agents.**
 

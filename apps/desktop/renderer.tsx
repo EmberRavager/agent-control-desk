@@ -2178,135 +2178,141 @@ export function App({
         </Modal>
       )}
       {focused && (
-        <Modal title={focused.title} onClose={() => setDetail(null)}>
-          <span className="pill">{tr(labels[focused.status])}</span>
-          <section className="detail-section">
-            <h3>{tr("最终目标")}</h3>
-            <p>{focused.goal}</p>
-          </section>
-          <section className="detail-section">
-            <h3>{tr("当前进展")}</h3>
-            <p>{focused.progress}</p>
-          </section>
-          {focused.status === "unknown" && (
-            <section className="detail-section recovery-panel">
-              <p>
-                {tr(
-                  "ACD 无法确认原执行状态。请先在原 Agent 或进程中核对已停止，再解除占用。",
-                )}
-              </p>
-              <label className="recovery-check">
-                <input
-                  type="checkbox"
-                  checked={recoveryConfirmed === focused.id}
-                  onChange={(e) =>
-                    setRecoveryConfirmed(e.target.checked ? focused.id : null)
-                  }
-                />
-                {tr("我已核对原执行已停止")}
-              </label>
-              <button
-                className="button"
-                disabled={recoveryConfirmed !== focused.id}
-                onClick={async () => {
-                  if (recoveryConfirmed !== focused.id) return;
-                  if (
-                    await perform(
-                      "POST",
-                      `/api/tasks/${encodeURIComponent(focused.id)}/reconcile`,
-                      { outcome: "stopped" },
-                    )
-                  ) {
-                    setRecoveryConfirmed(null);
-                    setDetail(null);
-                  }
-                }}
-              >
-                {tr("确认停止并解除占用")}
-              </button>
-              <p className="scan-note">
-                {tr("此操作依据你的核对记录状态，不会重新执行任务。")}
-              </p>
-            </section>
-          )}
-          <section className="detail-section">
-            <h3>{tr("执行范围")}</h3>
-            <dl className="detail-data">
-              <dt>Agent</dt>
-              <dd>{agentName(focused.agentId)}</dd>
-              <dt>{tr("工作目录")}</dt>
-              <dd>{focused.cwd}</dd>
-              <dt>{tr("要求版本")}</dt>
-              <dd>{focused.revision}</dd>
-              <dt>{tr("任务编号")}</dt>
-              <dd>{focused.id}</dd>
-            </dl>
-          </section>
-          {focused.allocation && (
-            <AllocationReason allocation={focused.allocation} />
-          )}
-          {focused.result && (
-            <section className="detail-section task-result">
-              <h3>{tr("交付结果")}</h3>
-              <pre>{focused.result}</pre>
-            </section>
-          )}
-          {detailQuestions
-            .filter(
-              (q) =>
-                !q.resolved &&
-                !q.answeredBy &&
-                (q.revision === undefined || q.revision === focused.revision),
-            )
-            .map((q) => question(q, true))}
-          {detailQuestions.some((q) => q.answerText) && (
+        <Modal
+          className="task-detail"
+          title={focused.title}
+          onClose={() => setDetail(null)}
+        >
+          <div className="task-detail-scroll">
+            <span className="pill">{tr(labels[focused.status])}</span>
             <section className="detail-section">
-              <h3>{tr("问答记录")}</h3>
-              {detailQuestions
-                .filter((q) => q.answerText)
-                .map((q) => (
-                  <div className="question-record" key={q.id}>
-                    <p>{q.text}</p>
-                    <p>
-                      {q.answeredBy === "supervisor"
-                        ? tr("ACD 代答")
-                        : tr("你回复")}{" "}
-                      · {q.answerText}
-                    </p>
-                    {q.answerBasis && (
-                      <small>{tr("依据本次委派中已明确的信息")}</small>
-                    )}
-                    {q.answerDelivery && (
-                      <small>
-                        {q.answerDelivery === "unknown"
-                          ? tr("送达待核对")
-                          : q.answerDelivery === "not_submitted"
-                            ? tr("未提交")
-                            : q.answerDelivery === "queued"
-                              ? tr("已排队")
-                              : tr("已提交")}
-                      </small>
-                    )}
-                  </div>
-                ))}
+              <h3>{tr("最终目标")}</h3>
+              <p>{focused.goal}</p>
             </section>
-          )}
-          {detailReports.map((m) => (
-            <section className="detail-section" key={m.id}>
-              <CompletionReport
-                report={m.completion!}
-                onRetry={async () => {
-                  if (!window.acd) throw Error(tr("桌面连接不可用"));
-                  await window.acd.request(
-                    "POST",
-                    `/api/reports/${m.completion!.id}/retry`,
-                    {},
-                  );
-                  await refresh();
-                }}
-              />
+            <section className="detail-section">
+              <h3>{tr("当前进展")}</h3>
+              <p>{focused.progress}</p>
             </section>
-          ))}
+            {focused.status === "unknown" && (
+              <section className="detail-section recovery-panel">
+                <p>
+                  {tr(
+                    "ACD 无法确认原执行状态。请先在原 Agent 或进程中核对已停止，再解除占用。",
+                  )}
+                </p>
+                <label className="recovery-check">
+                  <input
+                    type="checkbox"
+                    checked={recoveryConfirmed === focused.id}
+                    onChange={(e) =>
+                      setRecoveryConfirmed(e.target.checked ? focused.id : null)
+                    }
+                  />
+                  {tr("我已核对原执行已停止")}
+                </label>
+                <button
+                  className="button"
+                  disabled={recoveryConfirmed !== focused.id}
+                  onClick={async () => {
+                    if (recoveryConfirmed !== focused.id) return;
+                    if (
+                      await perform(
+                        "POST",
+                        `/api/tasks/${encodeURIComponent(focused.id)}/reconcile`,
+                        { outcome: "stopped" },
+                      )
+                    ) {
+                      setRecoveryConfirmed(null);
+                      setDetail(null);
+                    }
+                  }}
+                >
+                  {tr("确认停止并解除占用")}
+                </button>
+                <p className="scan-note">
+                  {tr("此操作依据你的核对记录状态，不会重新执行任务。")}
+                </p>
+              </section>
+            )}
+            <section className="detail-section">
+              <h3>{tr("执行范围")}</h3>
+              <dl className="detail-data">
+                <dt>Agent</dt>
+                <dd>{agentName(focused.agentId)}</dd>
+                <dt>{tr("工作目录")}</dt>
+                <dd>{focused.cwd}</dd>
+                <dt>{tr("要求版本")}</dt>
+                <dd>{focused.revision}</dd>
+                <dt>{tr("任务编号")}</dt>
+                <dd>{focused.id}</dd>
+              </dl>
+            </section>
+            {focused.allocation && (
+              <AllocationReason allocation={focused.allocation} />
+            )}
+            {focused.result && (
+              <section className="detail-section task-result">
+                <h3>{tr("交付结果")}</h3>
+                <pre>{focused.result}</pre>
+              </section>
+            )}
+            {detailQuestions
+              .filter(
+                (q) =>
+                  !q.resolved &&
+                  !q.answeredBy &&
+                  (q.revision === undefined || q.revision === focused.revision),
+              )
+              .map((q) => question(q, true))}
+            {detailQuestions.some((q) => q.answerText) && (
+              <section className="detail-section">
+                <h3>{tr("问答记录")}</h3>
+                {detailQuestions
+                  .filter((q) => q.answerText)
+                  .map((q) => (
+                    <div className="question-record" key={q.id}>
+                      <p>{q.text}</p>
+                      <p>
+                        {q.answeredBy === "supervisor"
+                          ? tr("ACD 代答")
+                          : tr("你回复")}{" "}
+                        · {q.answerText}
+                      </p>
+                      {q.answerBasis && (
+                        <small>{tr("依据本次委派中已明确的信息")}</small>
+                      )}
+                      {q.answerDelivery && (
+                        <small>
+                          {q.answerDelivery === "unknown"
+                            ? tr("送达待核对")
+                            : q.answerDelivery === "not_submitted"
+                              ? tr("未提交")
+                              : q.answerDelivery === "queued"
+                                ? tr("已排队")
+                                : tr("已提交")}
+                        </small>
+                      )}
+                    </div>
+                  ))}
+              </section>
+            )}
+            {detailReports.map((m) => (
+              <section className="detail-section" key={m.id}>
+                <CompletionReport
+                  report={m.completion!}
+                  onRetry={async () => {
+                    if (!window.acd) throw Error(tr("桌面连接不可用"));
+                    await window.acd.request(
+                      "POST",
+                      `/api/reports/${m.completion!.id}/retry`,
+                      {},
+                    );
+                    await refresh();
+                  }}
+                />
+              </section>
+            ))}
+          </div>
           <div className="modal-footer">
             {focused.status === "review" && (
               <button
@@ -2340,13 +2346,22 @@ export function App({
                     setDetail(null);
                 }}
               >
-                {tr("停止任务")}
+                {tr(
+                  ["review", "failed"].includes(focused.status)
+                    ? "结束任务"
+                    : "停止任务",
+                )}
               </button>
             )}
           </div>
-          <p className="scan-note">
-            {tr("停止不会撤销已经产生的修改。结果无法确认时保留“状态待确认”。")}
-          </p>
+          {!ended(focused) &&
+            !["review", "failed"].includes(focused.status) && (
+              <p className="scan-note">
+                {tr(
+                  "停止不会撤销已经产生的修改。结果无法确认时保留“状态待确认”。",
+                )}
+              </p>
+            )}
         </Modal>
       )}
     </div>

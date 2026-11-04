@@ -498,3 +498,94 @@ test("stop during adapter connection is retained and sent once the handle arrive
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("closing a finished execution clears review or failure without losing its result and is idempotent", async () => {
+  for (const status of ["review", "failed"] as const) {
+    const { dir, store } = fixture();
+    const task: Task = {
+      id: "finished-task",
+      title: "Finished work",
+      goal: "Inspect the fixture",
+      agentId: "a",
+      cwd: dir,
+      status,
+      revision: 2,
+      progress: "Execution ended",
+      result: "Preserved delivery",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    store.put("tasks", task.id, task);
+    const runtime = new Runtime(store, {
+      scan: async () => [],
+      vault,
+      route: async () => ({ reply: "", actions: [] }),
+      adapter: () => {
+        throw Error("Closing a finished task must not contact the executor");
+      },
+    });
+    store.put("questions", "stale-question", {
+      id: "stale-question",
+      taskId: task.id,
+      revision: task.revision,
+      kind: "input",
+      text: "Old question",
+      choices: [],
+      resolved: false,
+    });
+    try {
+      await runtime.stop(task.id);
+      const closed = runtime
+        .snapshot()
+        .tasks.find((item) => item.id === task.id)!;
+      assert.equal(closed.status, "cancelled");
+      assert.equal(closed.result, task.result);
+      assert.equal(closed.revision, task.revision + 1);
+      assert.ok(
+        runtime.snapshot().questions.every((question) => question.resolved),
+      );
+      await runtime.stop(task.id);
+      assert.equal(runtime.snapshot().tasks[0].revision, closed.revision);
+    } finally {
+      runtime.shutdown();
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("stop preserves accepted and already-cancelled tasks", async () => {
+  const { dir, store } = fixture();
+  const runtime = new Runtime(store, {
+    scan: async () => [],
+    vault,
+    route: async () => ({ reply: "", actions: [] }),
+    adapter: () => {
+      throw Error("Terminal tasks do not contact the executor");
+    },
+  });
+  try {
+    for (const status of ["completed", "cancelled"] as const) {
+      const task: Task = {
+        id: status,
+        title: "Terminal work",
+        goal: "Inspect the fixture",
+        agentId: "a",
+        cwd: dir,
+        status,
+        revision: 3,
+        result: "Saved result",
+        progress: "Closed",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      store.put("tasks", task.id, task);
+      await runtime.stop(task.id);
+      assert.deepEqual(store.get("tasks", task.id), task);
+    }
+  } finally {
+    runtime.shutdown();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -2,11 +2,11 @@
 
 [English](README.md) | **简体中文**
 
-[![下载 Mac 桌面端](https://img.shields.io/badge/macOS_Apple_Silicon-%E4%B8%8B%E8%BD%BD_DMG-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.8/Agent-Control-Desk-0.1.8-mac-arm64.dmg)
+[![下载 Mac 桌面端](https://img.shields.io/badge/macOS_Apple_Silicon-%E4%B8%8B%E8%BD%BD_DMG-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.9/Agent-Control-Desk-0.1.9-mac-arm64.dmg)
 
-[下载 ZIP 压缩包](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.8/Agent-Control-Desk-0.1.8-mac-arm64.zip) · [全部版本](https://github.com/EmberRavager/agent-control-desk/releases)
+[下载 ZIP 压缩包](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.9/Agent-Control-Desk-0.1.9-mac-arm64.zip) · [全部版本](https://github.com/EmberRavager/agent-control-desk/releases)
 
-v0.1.8 测试版，适用于 Apple Silicon（M1 及更新芯片）的 Mac。应用采用 ad-hoc 签名，尚未完成 Apple 公证。
+v0.1.9 测试版，适用于 Apple Silicon（M1 及更新芯片）的 Mac。应用采用 ad-hoc 签名，尚未完成 Apple 公证。
 
 **One conversation. All your agents.**
 

@@ -1,3 +1,4 @@
+import { publicSnippet } from "./native-context.js";
 import { workRequest } from "./memory-preferences.js";
 import { conversationMessages } from "../contracts/completion.js";
 import { rankedSettings } from "./allocation.js";
@@ -182,6 +183,49 @@ export function routingContext(
     nextRunAt,
     updatedAt,
   }));
+  const reportWords = Array.from(segmenter.segment(query))
+    .filter(
+      (word) =>
+        word.isWordLike &&
+        word.segment.length >= 2 &&
+        !genericWord.test(word.segment),
+    )
+    .map((word) => word.segment);
+  const latestReports = new Map<string, Snapshot["messages"][number]>();
+  for (const message of [...recentMessages].reverse()) {
+    const report = message.completion;
+    if (
+      report?.nativeId &&
+      report.status === "ready" &&
+      !latestReports.has(report.nativeId)
+    )
+      latestReports.set(report.nativeId, message);
+  }
+  const recentReports = candidates(
+    chatOnly ? [] : [...latestReports.values()],
+    2,
+    (message) => {
+      const report = message.completion!;
+      if (targetTaskId && targetTaskId !== report.nativeId) return 0;
+      if (refers(report.nativeId!, report.title)) return 4;
+      const content = (
+        report.title +
+        " " +
+        (report.summary || "")
+      ).toLowerCase();
+      if (reportWords.some((word) => content.includes(word))) return 3;
+      return message.id === lastLink?.id ? 2 : 0;
+    },
+    (message) => message.createdAt,
+  ).map((message) => ({
+    sourceId: message.completion!.nativeId!,
+    messageId: message.id,
+    title: publicSnippet(message.completion!.title, 160),
+    summary: publicSnippet(message.completion!.summary || message.text, 600),
+    assessed: message.completion!.assessed === true,
+    createdAt: message.createdAt,
+  }));
+
   const observations = candidates(
     chatOnly ? [] : snapshot.observations || [],
     8,
@@ -198,7 +242,9 @@ export function routingContext(
       (s) =>
         refers(s.id, s.taskTitle || s.title)
           ? 4
-          : s.id === lastLink?.completion?.nativeId && continuation
+          : s.id === lastLink?.completion?.nativeId &&
+              (continuation ||
+                recentReports.some((report) => report.sourceId === s.id))
             ? 3
             : s.status === "running" || s.status === "waiting_input"
               ? 2
@@ -269,6 +315,7 @@ export function routingContext(
     observations,
     questions,
     conversation,
+    recentReports,
     omittedSchedules: plans.length - schedules.length,
     allocation: {
       ...allocation,

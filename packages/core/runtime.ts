@@ -1,3 +1,5 @@
+import { lookupHistory } from "./history.js";
+import type { InvestigationContext } from "../contracts/investigation.js";
 import { englishMessages, normalizeLocale, translate } from "../i18n/index.cjs";
 import { PersonalMemories } from "./personal-memory.js";
 import {
@@ -71,6 +73,10 @@ export interface Dependencies {
   vault: SecretVault;
   route?: typeof route;
   report?: typeof summarizeCompletion;
+  nativeContext?: (
+    sessionId: string,
+    turnId?: string,
+  ) => Promise<NativeActivityContext>;
 }
 const ended = (t: Task) =>
   ["review", "completed", "failed", "cancelled"].includes(t.status);
@@ -990,11 +996,12 @@ export class Runtime extends EventEmitter {
       return;
     }
     let decision: RouteDecision;
-    try {
-      decision = await (this.deps.route || route)(
-        snapshot.model,
+    let investigation: InvestigationContext | undefined;
+    const decide = (context?: InvestigationContext) =>
+      (this.deps.route || route)(
+        snapshot.model!,
         key || "",
-        snapshot,
+        this.snapshot(),
         taskText,
         cwd,
         targetTaskId,
@@ -1006,7 +1013,73 @@ export class Runtime extends EventEmitter {
               (targetTaskId ? " " + this.task(targetTaskId).title : ""),
           ),
         ),
+        context,
       );
+    try {
+      decision = await decide();
+      const lookup = decision.actions.find(
+        (action) => action.type === "history" || action.type === "ask_agent",
+      );
+      if (lookup) {
+        if (decision.actions.length !== 1)
+          throw Error("历史查询不能与任务操作同时执行");
+        const sourceId = targetTaskId || lookup.sourceId;
+        const history = lookupHistory(
+          this.snapshot(),
+          lookup.type === "history" ? lookup.query : taskText,
+          cwd,
+          sourceId,
+        );
+        for (const entry of history.entries) {
+          const source = this.inquirySource(entry.sourceId);
+          if (source) {
+            entry.agentId = source.agentId;
+            entry.cwd = source.cwd;
+            if (entry.match !== "recent" && this.deps.nativeContext) {
+              try {
+                const context = await this.deps.nativeContext(
+                  source.sessionId,
+                  source.turnId,
+                );
+                const text = [
+                  context.request,
+                  ...context.requests,
+                  ...context.updates,
+                  context.finalAnswer || "",
+                ]
+                  .filter(Boolean)
+                  .join("\n");
+                const room = Math.min(
+                  1000,
+                  7800 - JSON.stringify(history).length,
+                );
+                if (text && room > 100) {
+                  entry.excerpts.push(
+                    publicSnippet("关联执行会话的公开记录\n" + text, room),
+                  );
+                  entry.truncated ||= context.truncated;
+                }
+              } catch {
+                entry.truncated = true;
+              }
+            }
+          }
+        }
+        investigation = { stage: "history", history };
+        if (this.closed || signal?.aborted) return;
+        decision = await decide(investigation);
+        if (
+          decision.actions.some(
+            (action) => !["ask_agent", "clarify"].includes(action.type),
+          )
+        )
+          decision = {
+            reply: this.tr(
+              "已查询历史记录，仍缺少足够的结果证据。请明确要核实的任务。",
+            ),
+            actions: [],
+          };
+      }
     } catch (error) {
       if (this.closed) return;
       this.updateRouting(m, "failed", [], true);
@@ -1026,7 +1099,13 @@ export class Runtime extends EventEmitter {
     }
     if (this.closed) return;
     const actions = [...decision.actions];
-    this.updateRouting(m, "completed", actions);
+    this.updateRouting(
+      m,
+      "completed",
+      investigation
+        ? [{ type: "history", query: investigation.history.query }, ...actions]
+        : actions,
+    );
     let actionFailed = false;
     for (const [index, proposed] of actions.entries()) {
       if (this.closed) return;
@@ -1051,7 +1130,94 @@ export class Runtime extends EventEmitter {
             this.updateRouting(m, "completed", actions);
           }
         }
-        if (a.type === "create") {
+        if (a.type === "ask_agent") {
+          if (targetTaskId && a.sourceId !== targetTaskId)
+            throw Error(
+              this.tr("请先查询并明确关联任务，再向执行 Agent 核实。"),
+            );
+          const evidence = investigation?.history.entries.find(
+            (entry) =>
+              entry.sourceId === a.sourceId &&
+              entry.kind !== "conversation" &&
+              entry.match !== "recent",
+          );
+          if (!evidence)
+            throw Error(
+              this.tr("请先查询并明确关联任务，再向执行 Agent 核实。"),
+            );
+          const sources = investigation!.history.entries.filter(
+            (entry) =>
+              entry.kind !== "conversation" && entry.match !== "recent",
+          );
+          if (sources.length > 1 && evidence.match !== "explicit") {
+            reply(
+              this.tr(
+                "历史记录中有多个相关任务，请指定要向哪项任务的执行 Agent 核实。",
+              ),
+            );
+            continue;
+          }
+          const source = this.inquirySource(a.sourceId);
+          const agent =
+            source && this.store.get<AgentConnection>("agents", source.agentId);
+          if (
+            !source ||
+            !agent ||
+            !agent.selected ||
+            !agent.available ||
+            agent.supported === false
+          )
+            throw Error(
+              this.tr("原执行会话或 Agent 当前不可用，请明确要核实的任务。"),
+            );
+          if (agent.kind !== "codex")
+            throw Error(
+              this.tr(
+                "原执行 Agent 暂不支持安全的历史核实，已保留历史查询结果。",
+              ),
+            );
+          const question = [
+            this.tr(
+              "本次只核实先前执行结果，依据会话历史回答。不要重新执行原任务或发起写入、提交、推送等操作。",
+            ),
+            this.tr("原任务标题"),
+            publicSnippet(evidence.title, 240),
+            this.tr("用户本轮问题"),
+            publicSnippet(taskText, 3000),
+            this.tr("待核实内容"),
+            publicSnippet(a.question, 3000),
+            this.tr("请明确区分已有执行证据、计划和仍不能确认的事项。"),
+          ].join("\n");
+          const task = this.prepareTask(
+            {
+              title: this.tr("核实 · {v0}", { v0: evidence.title }).slice(
+                0,
+                120,
+              ),
+              goal: taskText,
+              responseKind: "answer",
+              cwd: source.cwd,
+              agentId: agent.id,
+              inquiry: {
+                sourceId: source.id,
+                sessionId: source.sessionId,
+                question,
+                ...(source.turnId ? { turnId: source.turnId } : {}),
+              },
+            },
+            m.id,
+          );
+          this.dispatchPreparedTask(task);
+          reply(
+            this.tr("已查阅历史，正在向 {v0} 核实这项任务的结果。", {
+              v0: agent.name,
+            }),
+            "assistant",
+            [task.id],
+          );
+        } else if (a.type === "history") {
+          throw Error(this.tr("本次历史查询已结束，请明确要核实的任务。"));
+        } else if (a.type === "create") {
           const { agent, allocation } = allocateAgent({
             locale: this.preferences().locale,
             agents: this.snapshot().agents,
@@ -1151,6 +1317,14 @@ export class Runtime extends EventEmitter {
           );
         } else if (a.type === "supplement") {
           const t = this.task(a.taskId);
+          if (t.inquiry && this.reserved.has(t.id)) {
+            reply(
+              this.tr("核实仍在进行，请等待结果后再补充问题。"),
+              "assistant",
+              [t.id],
+            );
+            continue;
+          }
           if (t.revision !== a.expectedRevision)
             throw Error(this.tr("任务已被更新，请依据最新进展重新确认"));
           if (t.status === "unknown")
@@ -1231,6 +1405,11 @@ export class Runtime extends EventEmitter {
               [t.id],
             );
           } else {
+            if (t.inquiry)
+              t.inquiry.question = [
+                publicSnippet(t.inquiry.question, 8000),
+                publicSnippet(a.text, 3000),
+              ].join("\n");
             if (t.sessionId && agent?.kind === "codex")
               t.pendingTurnText = t.pendingTurnText
                 ? t.pendingTurnText + "\n" + a.text
@@ -1340,9 +1519,45 @@ export class Runtime extends EventEmitter {
       true,
     );
   }
+  private inquirySource(id: string) {
+    const task = this.store.get<Task>("tasks", id);
+    if (task) {
+      const sessionId = task.inquiry?.sessionId || task.sessionId;
+      return sessionId
+        ? {
+            id,
+            sessionId,
+            agentId: task.agentId,
+            cwd: task.cwd,
+            title: task.title,
+            turnId: task.inquiry?.turnId || task.turnId,
+          }
+        : undefined;
+    }
+    const saved = this.store.get<{
+      ignored?: boolean;
+      session?: NativeSession;
+    }>("native-executions", id);
+    if (saved?.ignored) return;
+    const session =
+      saved?.session ||
+      this.snapshot()
+        .observations?.flatMap((item) => item.sessions)
+        .find((item) => item.id === id);
+    return session
+      ? {
+          id,
+          sessionId: session.sessionId,
+          agentId: session.agentId,
+          cwd: session.cwd,
+          title: session.taskTitle || session.title,
+          turnId: session.turnId,
+        }
+      : undefined;
+  }
   prepareTask(
     input: Pick<Task, "title" | "goal" | "agentId" | "cwd"> &
-      Pick<Task, "allocation" | "responseKind">,
+      Pick<Task, "allocation" | "responseKind" | "inquiry">,
     sourceMessageId?: string,
   ): Task {
     if (this.closed) throw Error(this.tr("服务正在退出"));
@@ -1404,15 +1619,19 @@ export class Runtime extends EventEmitter {
       return;
     }
     const conflict =
-      this.store
+      !t.inquiry &&
+      (this.store
         .list<Task>("tasks")
         .find(
           (x) =>
-            x.id !== t.id && this.reserved.has(x.id) && overlaps(x.cwd, t.cwd),
+            x.id !== t.id &&
+            !x.inquiry &&
+            this.reserved.has(x.id) &&
+            overlaps(x.cwd, t.cwd),
         ) ??
-      [...this.nativeDirectories.values()].find((held) =>
-        overlaps(held.cwd, t.cwd),
-      )?.session;
+        [...this.nativeDirectories.values()].find((held) =>
+          overlaps(held.cwd, t.cwd),
+        )?.session);
     if (conflict) {
       const progress =
         this.tr("等待「") +
@@ -1528,6 +1747,9 @@ export class Runtime extends EventEmitter {
     this.store.message({
       id: `outcome-${task.id}-${task.revision}`,
       taskOutcome: { revision: task.revision },
+      ...(task.inquiry && task.sourceMessageId
+        ? { replyTo: task.sourceMessageId }
+        : {}),
       role: "assistant",
       taskIds: [task.id],
       createdAt: new Date().toISOString(),
@@ -1724,6 +1946,24 @@ export class Runtime extends EventEmitter {
   }
   async stop(id: string) {
     const t = this.task(id);
+    if (
+      ["review", "failed"].includes(t.status) &&
+      !this.reserved.has(id) &&
+      !this.handles.has(id)
+    ) {
+      this.store.transaction(() => {
+        for (const q of this.store.list<Question>("questions"))
+          if (q.taskId === id && !q.resolved)
+            this.store.put("questions", q.id, { ...q, resolved: true });
+        t.status = "cancelled";
+        t.revision++;
+        t.progress = this.tr("任务已结束，已有结果保留。");
+        t.updatedAt = new Date().toISOString();
+        this.store.put("tasks", id, t);
+      });
+      this.publish();
+      return;
+    }
     if (ended(t) || t.status === "stopping") return;
     if (
       (["queued", "blocked"].includes(t.status) ||
@@ -1898,6 +2138,11 @@ export class Runtime extends EventEmitter {
         t.revision++;
         t.turnId = undefined;
         t.pendingTurnText = choice;
+        if (t.inquiry)
+          t.inquiry.question = [
+            publicSnippet(t.inquiry.question, 8000),
+            publicSnippet(choice, 3000),
+          ].join("\n");
         t.followupQuestionId = q.id;
         t.result = undefined;
         t.status = "queued";

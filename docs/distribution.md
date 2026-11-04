@@ -1,17 +1,17 @@
 # 安装与构建分发包
 
-当前版本为 0.1.8 测试版，提供 Mac ARM64 的 DMG 和 ZIP。新增 Agent 优先级排序、精简输入区、个人记忆设置及中英文界面，并完善总控追问和结果汇报。安装包在隔离数据目录核验包内 Node、SQLite、原生模块与后台启动、退出流程。
+当前版本为 0.1.9 测试版，提供 Mac ARM64 的 DMG 和 ZIP。支持 Agent 优先级、个人记忆和中英文界面；新增历史证据补查及 Codex 隔离核实，修复待检查任务无法结束的问题。安装包在隔离数据目录核验包内 Node、SQLite、原生模块与后台启动、退出流程。
 
 ## 安装方式
 
-从 [v0.1.8 发布页](https://github.com/EmberRavager/agent-control-desk/releases/tag/v0.1.8) 下载 DMG、ZIP 或 CLI 包，并可使用 SHA256SUMS 核对文件。
+从 [v0.1.9 发布页](https://github.com/EmberRavager/agent-control-desk/releases/tag/v0.1.9) 下载 DMG、ZIP 或 CLI 包，并可使用 SHA256SUMS 核对文件。
 
 Mac 的 DMG 中包含 `Agent Control Desk.app`，复制到 Applications 后打开；ZIP 也包含同一应用。桌面包自带 Electron/Node，不需要另外安装 Node、项目依赖或 TypeScript。当前本机产物仅作 ad-hoc 签名，没有 Developer ID 签名与 Apple 公证，作为测试版提供。
 
-CLI 包为 `agent-control-desk-0.1.8.tgz`，需要 Node.js >=22.13.0 和 npm：
+CLI 包为 `agent-control-desk-0.1.9.tgz`，需要 Node.js >=22.13.0 和 npm：
 
 ```sh
-npm install --global ./agent-control-desk-0.1.8.tgz
+npm install --global ./agent-control-desk-0.1.9.tgz
 acd --help
 acd
 ```

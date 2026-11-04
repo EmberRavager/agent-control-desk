@@ -35,7 +35,7 @@ acd CLI ────────────────────────
 
 本机 Ollama、LM Studio 的无 Key 模式不访问系统凭证存储，状态如实保存 `hasKey: false`；只有这两个明确的本机服务预设且接口在 loopback 时才允许免 Key。MiniMax 对话接口未使用未声明的 JSON 模式参数，启用 `reasoning_split` 后通过提示词请求 JSON，仍须通过完整本地校验。
 
-新增预设与目录接口参考：[Kimi](https://platform.kimi.com/docs/get-api-key)、[智谱 OpenAI 兼容](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction)、[MiniMax](https://platform.minimax.cn/docs/api-reference/text-chat-openai)、[Gemini](https://ai.google.dev/gemini-api/docs/openai)、[硅基流动模型列表](https://api-docs.siliconflow.cn/docs/api/models-get)、[Ollama](https://docs.ollama.com/api/openai-compatibility)、[LM Studio](https://lmstudio.ai/docs/developer/openai-compat)。预设与参考型号需要随官方接口变化维护，远端列表仍需用户实际权限验证。上下文包括已选择 Agent、任务目标/状态/版本、待处理问题和近期总控对话。模型返回 JSON 决策，由 Zod 校验后交给运行时执行。新建动作中的 agentId 仅为模型建议，本地分配函数执行明确指定、项目内排序、全局排序、唯一候选、模型建议的优先级，并检查必要协议能力；记录本地分配原因。消息中的 targetAgentId/requiredCapabilities 贯穿幂等、重试和澄清，已有任务仍保留原执行者。设置接口及边界见 [执行者分配](routing.md#执行者分配)。当前动作集合：
+新增预设与目录接口参考：[Kimi](https://platform.kimi.com/docs/get-api-key)、[智谱 OpenAI 兼容](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction)、[MiniMax](https://platform.minimax.cn/docs/api-reference/text-chat-openai)、[Gemini](https://ai.google.dev/gemini-api/docs/openai)、[硅基流动模型列表](https://api-docs.siliconflow.cn/docs/api/models-get)、[Ollama](https://docs.ollama.com/api/openai-compatibility)、[LM Studio](https://lmstudio.ai/docs/developer/openai-compat)。预设与参考型号需要随官方接口变化维护，远端列表仍需用户实际权限验证。上下文包括已选择 Agent、任务目标/状态/版本、待处理问题和近期总控对话。模型返回 JSON 决策，由 Zod 校验后交给运行时执行。事实追问信息不足时，先执行只读 history，再携带有来源的历史证据判断一次；原执行来源明确且仍缺结果时，可创建 answer 类型的 ask_agent 核实任务。查询阶段不接受重新创建或修改旧工作的动作，查询预算与原生工具隔离检查见 [路由策略](routing.md#历史补查与执行者核实)。新建动作中的 agentId 仅为模型建议，本地分配函数执行明确指定、项目内排序、全局排序、唯一候选、模型建议的优先级，并检查必要协议能力；记录本地分配原因。消息中的 targetAgentId/requiredCapabilities 贯穿幂等、重试和澄清，已有任务仍保留原执行者。设置接口及边界见 [执行者分配](routing.md#执行者分配)。当前动作集合：
 
 | 动作               | 行为                                                           |
 | ------------------ | -------------------------------------------------------------- |
@@ -47,6 +47,8 @@ acd CLI ────────────────────────
 | `schedule_create`  | 按明确规则创建定时计划，目录绑定当前输入，不立即执行任务       |
 | `schedule_control` | 按上下文版本暂停、恢复或删除指定计划                           |
 | `schedule_status`  | 从持久化计划汇总时间与最近触发记录                             |
+| `history`          | 按来源和内容检索本机任务、对话与交付记录，带有界证据重新判断   |
+| `ask_agent`        | 历史仍不足时，通过匹配来源向原 Codex 执行者发起隔离核实        |
 
 澄清问题支持自由文字纠正，并通过完整消息索引取回原输入；重新接收失败时保留问题供重试。原生授权只接受给定选项，提交期间阻止重复点击。
 
