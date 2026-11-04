@@ -1,3 +1,5 @@
+import { translate } from "../../i18n/index.cjs";
+import type { Locale } from "../../contracts/index.js";
 import type {
   AgentAdapter,
   AdapterEvent,
@@ -14,8 +16,11 @@ export class ClaudeAdapter implements AgentAdapter {
   constructor(
     private readonly launcher?: Launcher,
     private readonly stopTimeoutMs = 5000,
+    private readonly locale: () => Locale = () => "zh-CN",
   ) {}
   async start({ task, agent, onEvent }: StartRun): Promise<RunHandle> {
+    const tr = (source: string, values?: Record<string, string | number>) =>
+      translate(this.locale(), source, values);
     const args = [
       "-p",
       "--output-format",
@@ -66,7 +71,7 @@ export class ClaudeAdapter implements AgentAdapter {
       (value) => {
         if (terminal || disposed) return;
         if (!value || typeof value !== "object" || Array.isArray(value)) {
-          finish("failed", "Claude 返回了无法识别的协议记录。");
+          finish("failed", tr("Claude 返回了无法识别的协议记录。"));
           return;
         }
         const event = value as Record<string, any>;
@@ -91,32 +96,37 @@ export class ClaudeAdapter implements AgentAdapter {
           finish(
             success ? "completed" : "failed",
             denied
-              ? "Claude 的工具权限被拒绝；此适配器暂不支持交互授权，请在原生端处理。"
+              ? tr(
+                  "Claude 的工具权限被拒绝；此适配器暂不支持交互授权，请在原生端处理。",
+                )
               : success
                 ? undefined
-                : "Claude 未返回明确成功结果，请核对原生输出与模型配置。",
+                : tr("Claude 未返回明确成功结果，请核对原生输出与模型配置。"),
           );
         }
       },
       () => {
         if (!stopping)
-          finish("failed", "Claude 协议连接已结束或记录无效，执行状态待核对。");
+          finish(
+            "failed",
+            tr("Claude 协议连接已结束或记录无效，执行状态待核对。"),
+          );
       },
     );
     proc.stderr.resume();
     proc.on("error", () =>
-      finish("failed", "Claude 程序无法启动，请检查安装与执行权限。", true),
+      finish("failed", tr("Claude 程序无法启动，请检查安装与执行权限。"), true),
     );
     proc.stdin.on("error", () =>
-      finish("failed", "Claude 输入连接中断，执行状态待核对。"),
+      finish("failed", tr("Claude 输入连接中断，执行状态待核对。")),
     );
     // close follows stdout drainage; exit can precede the final protocol record.
     proc.on("close", () =>
       finish(
         stopping ? "cancelled" : "failed",
         stopping
-          ? "Claude 进程已停止，已有修改保留。"
-          : "Claude 已退出且未返回明确结果，请核对原生执行。",
+          ? tr("Claude 进程已停止，已有修改保留。")
+          : tr("Claude 已退出且未返回明确结果，请核对原生执行。"),
       ),
     );
     proc.stdin.end(task.goal);
@@ -127,11 +137,12 @@ export class ClaudeAdapter implements AgentAdapter {
         );
       },
       stop: async () => {
-        if (terminal || disposed) throw Error("Claude 没有可确认的活动执行。");
+        if (terminal || disposed)
+          throw Error(tr("Claude 没有可确认的活动执行。"));
         stopping = true;
         void terminate(proc).catch(() => {
           if (!terminal)
-            finish("failed", "Claude 进程停止未确认，请核对原生执行。");
+            finish("failed", tr("Claude 进程停止未确认，请核对原生执行。"));
         });
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -146,7 +157,10 @@ export class ClaudeAdapter implements AgentAdapter {
             ),
           ]);
         } catch {
-          finish("failed", "Claude 未在时限内退出，请人工核对，已有修改保留。");
+          finish(
+            "failed",
+            tr("Claude 未在时限内退出，请人工核对，已有修改保留。"),
+          );
         } finally {
           clearTimeout(timer);
         }

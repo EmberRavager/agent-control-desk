@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n.js";
 import React from "react";
 import type { CompletionReport as Report } from "../../packages/contracts/index.js";
 export default function CompletionReport({
@@ -11,6 +12,7 @@ export default function CompletionReport({
   onOpen?: () => void;
   showHeading?: boolean;
 }) {
+  const { t } = useI18n();
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
   async function retry() {
@@ -21,7 +23,7 @@ export default function CompletionReport({
       await onRetry();
     } catch (failure) {
       setError(
-        failure instanceof Error ? failure.message : "暂时无法重试完成判定",
+        failure instanceof Error ? failure.message : t("暂时无法重试完成判定"),
       );
     } finally {
       setBusy(false);
@@ -29,31 +31,31 @@ export default function CompletionReport({
   }
   if (report.status === "withheld") return null;
   return (
-    <section className="completion-report" aria-label="任务结果与建议">
+    <section className="completion-report" aria-label={t("任务结果与建议")}>
       {showHeading && (
         <div className="completion-heading">
           <h3>{report.title}</h3>
           <span>
             {report.status === "pending"
-              ? "整理中"
+              ? t("整理中")
               : report.status === "failed"
-                ? "判定待重试"
+                ? t("判定待重试")
                 : report.assessed
-                  ? "AI 判定已交付"
-                  : "结果待检查"}
+                  ? t("AI 判定已交付")
+                  : t("结果待检查")}
           </span>
         </div>
       )}
       {report.status === "pending" ? (
         <p className="completion-pending" role="status">
-          正在整理结果与建议…
+          {t("正在整理结果与建议…")}
         </p>
       ) : report.status === "ready" ? (
         <>
           <p className="completion-summary">{report.summary}</p>
           {!!report.suggestions?.length && (
             <div className="completion-suggestions">
-              <h4>建议</h4>
+              <h4>{t("建议")}</h4>
               <ol>
                 {report.suggestions.map((suggestion, index) => (
                   <li key={index}>{suggestion}</li>
@@ -64,14 +66,14 @@ export default function CompletionReport({
         </>
       ) : (
         <div className="completion-failed">
-          <p>{report.error || "结果与建议暂未生成。"}</p>
+          <p>{report.error || t("结果与建议暂未生成。")}</p>
           {onRetry && (
             <button
               className="button ghost"
               disabled={busy}
               onClick={() => void retry()}
             >
-              {busy ? "重试中…" : "重试完成判定"}
+              {busy ? t("重试中…") : t("重试完成判定")}
             </button>
           )}
         </div>
@@ -83,7 +85,7 @@ export default function CompletionReport({
       )}
       {onOpen && (
         <button className="button ghost completion-source" onClick={onOpen}>
-          查看任务
+          {t("查看任务")}
         </button>
       )}
     </section>

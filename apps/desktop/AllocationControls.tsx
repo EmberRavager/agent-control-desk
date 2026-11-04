@@ -1,4 +1,5 @@
-import React from "react";
+import { useI18n } from "./i18n.js";
+import React, { useId } from "react";
 import type {
   AgentCapability,
   AgentConnection,
@@ -23,46 +24,82 @@ interface Props {
   onCapabilitiesChange: (values: AgentCapability[]) => void;
 }
 export function AllocationControls(props: Props) {
+  const { t } = useI18n();
+  const panelId = useId();
+  if (props.locked) return null;
   const candidates = props.agents.filter(assignable);
-  const unavailable =
-    props.targetAgentId &&
-    !candidates.some((agent) => agent.id === props.targetAgentId);
+  const selected = props.agents.find(
+    (agent) => agent.id === props.targetAgentId,
+  );
+  const unavailable = Boolean(
+    props.targetAgentId && (!selected || !assignable(selected)),
+  );
+  const overrides = [
+    unavailable ? t("执行者不可用") : selected?.name,
+    props.requiredCapabilities.length
+      ? t("{count} 项能力", { count: props.requiredCapabilities.length })
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const label = overrides
+    ? t("本次发送选项：{options}", { options: overrides })
+    : t("本次发送选项");
   return (
-    <div className="allocation-controls">
-      <label className="allocation-agent">
-        <span className="small">执行者</span>
-        <select
-          aria-label="新任务执行者"
-          value={props.locked ? "" : props.targetAgentId}
-          disabled={props.locked}
-          onChange={(event) => props.onAgentChange(event.target.value)}
+    <>
+      <button
+        type="button"
+        className="button allocation-trigger"
+        popoverTarget={panelId}
+        aria-label={label}
+        title={label}
+        data-unavailable={unavailable || undefined}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          aria-hidden="true"
         >
-          <option value="">
-            {props.locked ? "沿用原任务执行者" : "自动分配"}
-          </option>
-          {unavailable && (
-            <option value={props.targetAgentId}>
-              {props.agents.find((agent) => agent.id === props.targetAgentId)
-                ?.name || props.targetAgentId}{" "}
-              · 已不可用
-            </option>
-          )}
-          {candidates.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <details className="allocation-requirements">
-        <summary>
-          必需能力
-          {props.requiredCapabilities.length
-            ? ` · ${props.requiredCapabilities.length}`
-            : ""}
-        </summary>
-        <fieldset disabled={props.locked}>
-          <legend>仅用于本条消息立即创建的新任务</legend>
+          <path d="M3 7h4m5 0h9M3 17h10m5 0h3" />
+          <circle cx="9.5" cy="7" r="2.5" />
+          <circle cx="15.5" cy="17" r="2.5" />
+        </svg>
+        {overrides && <span>{overrides}</span>}
+      </button>
+      <div
+        id={panelId}
+        popover="auto"
+        className="allocation-panel"
+        aria-label={t("本次发送选项")}
+        role="group"
+      >
+        <label className="allocation-agent">
+          <span>{t("执行者")}</span>
+          <select
+            aria-label={t("新任务执行者")}
+            value={props.targetAgentId}
+            onChange={(event) => props.onAgentChange(event.target.value)}
+          >
+            <option value="">{t("自动分配")}</option>
+            {unavailable && (
+              <option value={props.targetAgentId}>
+                {selected?.name || props.targetAgentId} {t("· 已不可用")}
+              </option>
+            )}
+            {candidates.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <fieldset>
+          <legend>{t("必需能力")}</legend>
           {(Object.keys(capabilityLabels) as AgentCapability[]).map(
             (capability) => (
               <label key={capability}>
@@ -79,26 +116,13 @@ export function AllocationControls(props: Props) {
                     )
                   }
                 />
-                {capabilityLabels[capability]}
+                {t(capabilityLabels[capability])}
               </label>
             ),
           )}
-          <p className="field-help">
-            授权交互表示执行端能转交确认请求；实际操作仍遵循原生权限。
-          </p>
         </fieldset>
-      </details>
-      {props.locked && (
-        <span className="small">
-          沿用原任务执行者，分配选项仅用于立即新任务。
-        </span>
-      )}
-      {!props.locked && unavailable && (
-        <span className="form-error" role="status">
-          所选执行者已不可用，请重新选择。
-        </span>
-      )}
-    </div>
+      </div>
+    </>
   );
 }
 export function AllocationReason({
@@ -106,16 +130,17 @@ export function AllocationReason({
 }: {
   allocation: AllocationDecision;
 }) {
+  const { t, locale } = useI18n();
   return (
     <section className="detail-section">
-      <h3>分配依据</h3>
+      <h3>{t("分配依据")}</h3>
       <p>{allocation.reason}</p>
       {allocation.requiredCapabilities.length > 0 && (
         <p className="small">
-          必需能力：
+          {t("必需能力：")}
           {allocation.requiredCapabilities
-            .map((capability) => capabilityLabels[capability])
-            .join("、")}
+            .map((capability) => t(capabilityLabels[capability]))
+            .join(locale === "en" ? ", " : "、")}
         </p>
       )}
     </section>

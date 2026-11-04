@@ -258,13 +258,6 @@ a {
   font-weight: 650;
   line-height: 1;
 }
-.brand-name span {
-  color: var(--muted);
-  letter-spacing: 0px;
-  margin-left: 8px;
-  font-size: 11px;
-  font-weight: 400;
-}
 .nav-main {
   background: var(--accent-soft);
   width: 100%;
@@ -420,6 +413,14 @@ a {
 }
 .connection-status {
   color: var(--amber);
+}
+.app-version {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.2;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
 }
 .bottom-tools {
   border-top: 1px solid var(--line);
@@ -1528,9 +1529,6 @@ dialog::backdrop {
     gap: 8px;
     padding-left: 10px;
   }
-  .brand-name span {
-    display: none;
-  }
   .topbar {
     padding: 0px 22px;
   }
@@ -1567,9 +1565,6 @@ dialog::backdrop {
   }
   .sidebar.open {
     display: flex;
-  }
-  .brand-name span {
-    display: inline;
   }
   .mobile-toggle {
     display: inline-flex;
@@ -4568,52 +4563,70 @@ dialog::backdrop {
   }
 }
 
-.allocation-controls,
-.allocation-agent {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+.allocation-trigger {
+  min-width: 30px;
+  max-width: min(200px, 32vw);
 }
-.allocation-agent select {
-  max-width: 180px;
-  min-height: 32px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 4px 8px;
-  background: var(--paper);
+.allocation-trigger svg {
+  flex: none;
 }
-.allocation-requirements {
-  position: relative;
-  font-size: 12px;
-  color: var(--secondary);
+.allocation-trigger span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-.allocation-requirements summary {
-  cursor: pointer;
-  padding: 7px 2px;
+.composer-controls .allocation-trigger[data-unavailable] {
+  color: var(--amber);
 }
-.allocation-requirements fieldset {
-  position: absolute;
-  bottom: 32px;
-  right: 0;
-  width: min(280px, 70vw);
-  margin: 0;
+.allocation-panel {
+  position: fixed;
+  inset: auto;
+  position-area: top span-right;
+  position-try-fallbacks: flip-inline, flip-block;
+  justify-self: start;
+  margin: 0 0 6px;
+  width: min(260px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
   padding: 14px;
   background: var(--paper);
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  z-index: 20;
+  font-size: 12px;
 }
-.allocation-requirements legend {
-  background: var(--paper);
-  padding: 0 4px;
-}
-.allocation-requirements label {
+.allocation-agent {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+}
+.allocation-agent select {
+  min-width: 0;
+  max-width: 76%;
+  padding: 4px 8px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.allocation-panel fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+}
+.allocation-panel legend {
   margin-bottom: 8px;
+  color: var(--secondary);
+}
+.allocation-panel fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 .allocation-projects {
   margin-top: 18px;
@@ -4638,4 +4651,134 @@ dialog::backdrop {
   margin-top: 16px;
   padding-top: 0;
   border-top: 0;
+}
+.allocation-ranking {
+  padding: 0;
+  margin: 12px 0 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.allocation-ranking li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+}
+.allocation-ranking li + li {
+  border-top: 1px solid var(--line);
+}
+.allocation-position {
+  min-width: 24px;
+  color: var(--secondary);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.allocation-ranking li:first-child .allocation-position {
+  color: var(--accent);
+  font-weight: 650;
+}
+.allocation-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 550;
+}
+.allocation-ranking small {
+  color: var(--secondary);
+}
+.allocation-ranking .button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 4px;
+  font-size: 16px;
+}
+.allocation-directory {
+  margin: 10px 0;
+}
+.allocation-path {
+  overflow-wrap: anywhere;
+}
+
+.personal-memory-form,
+.memory-confirm,
+.memory-conflict {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--desk);
+}
+.personal-memory-form h3 {
+  font-size: 14px;
+}
+.personal-memory-form .setting-field {
+  margin: 14px 0;
+}
+.personal-memory-form textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.6;
+}
+.personal-memory-group h3 small,
+.memory-source {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.personal-memory-group h3 small {
+  margin-left: 8px;
+}
+.personal-memory-group ul {
+  padding: 0;
+  list-style: none;
+}
+.personal-memory-group li {
+  padding: 12px 0;
+}
+.personal-memory-group li + li {
+  border-top: 1px solid var(--line);
+}
+.memory-row-heading,
+.memory-actions,
+.memory-confirm,
+.memory-feedback {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.memory-row-heading,
+.memory-confirm {
+  justify-content: space-between;
+}
+.memory-row-heading strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.memory-actions .button {
+  min-height: 32px;
+}
+.memory-content,
+.memory-conflict p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 6px 0;
+}
+.memory-confirm,
+.memory-conflict {
+  margin: 10px 0;
+  font-size: 12px;
+}
+#settings-memory .settings-section-heading .button {
+  flex-shrink: 0;
 }

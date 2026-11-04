@@ -1,3 +1,4 @@
+import { conversationMessages } from "../packages/contracts/completion.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -718,7 +719,10 @@ test("completion report forwarding is opt-in, future-only, and deduplicates read
       id,
       title: "测试报告",
       status: "ready" as const,
-      summary: "测试摘要",
+      summary: "测试摘要 " + id,
+      assessed: true,
+      agentName: "Codex",
+      nativeId: "fixture-thread",
       suggestions: ["检查产物"],
     },
   });
@@ -738,6 +742,17 @@ test("completion report forwarding is opt-in, future-only, and deduplicates read
       x.f.sent.some((m) =>
         m.msg.item_list[0].text_item.text.includes("new-report"),
       ),
+    );
+    const snapshot = x.app.runtime.snapshot();
+    const visible = conversationMessages(snapshot.messages, snapshot).find(
+      (m) => m.id === "new-report",
+    );
+    assert.equal(
+      visible?.text,
+      "Codex 已返回「测试报告」的结果，总控判定已交付。\n测试摘要 new-report",
+    );
+    assert.ok(
+      x.f.sent.some((m) => m.msg.item_list[0].text_item.text === visible?.text),
     );
     for (let n = 0; n < 5; n++) x.app.runtime.publish();
     assert.equal(

@@ -52,7 +52,24 @@ test("model route calls the configured compatible API and validates structured d
         hasKey: true,
       },
       "fake-key",
-      snapshot,
+      {
+        ...snapshot,
+        messages: [
+          {
+            id: "external",
+            role: "assistant",
+            text: "Unrelated external report",
+            taskIds: [],
+            createdAt: "1",
+            completion: {
+              id: "ext",
+              title: "external",
+              status: "ready",
+              nativeId: "another-session",
+            },
+          },
+        ],
+      },
       "这个先别改",
       "/fixture",
       "target-id",
@@ -60,6 +77,7 @@ test("model route calls the configured compatible API and validates structured d
     assert.equal(decision.actions[0].type, "clarify");
     assert.equal(received.model, "fixture-model");
     const input = JSON.parse(received.messages[1].content);
+    assert.deepEqual(input.conversation, []);
     assert.equal(input.input.targetTaskId, "target-id");
     assert.equal(input.input.text, "这个先别改");
     assert.equal(received.response_format.type, "json_object");
@@ -703,6 +721,117 @@ test("a model points to authentic Markdown evidence by line number and cannot ci
       (await summarizeCompletion(conf, "", input)).outcome,
       "delivered",
     );
+  } finally {
+    globalThis.fetch = old;
+  }
+});
+
+test("a reusable workflow grounds its goal in the request and each implicit step in a delivered result", async () => {
+  const { summarizeCompletion } = await import("../packages/core/model.js");
+  const old = globalThis.fetch;
+  const steps = [
+    {
+      step: "汇总合并记录，包含本周三项搜索修复",
+      resultQuote: "已汇总三条合并记录",
+      resultLine: 1,
+    },
+    { step: "列出遗留风险", resultQuote: "列出两项遗留风险", resultLine: 2 },
+  ];
+  const candidate = {
+    activity: "编写周报",
+    requestQuote: "整理本周周报",
+    steps,
+  };
+  let workflow: unknown = candidate;
+  let outcome = "delivered";
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              outcome,
+              objective: "编写周报",
+              evidenceLine: 1,
+              summary: "已生成周报",
+              suggestions: ["复核"],
+              workflow,
+            }),
+          },
+        },
+      ],
+    });
+  };
+  const config = {
+    providerId: "ollama",
+    baseUrl: "http://127.0.0.1:11434/v1",
+    model: "fixture",
+    hasKey: false,
+  };
+  const input = {
+    title: "编写周报",
+    requirements: ["整理本周周报"],
+    progress: "",
+    result:
+      "已汇总三条合并记录。\n列出两项遗留风险。\n后续建议：\n1. 给客户发邮件",
+    workflowActivities: [],
+  };
+  try {
+    assert.deepEqual((await summarizeCompletion(config, "", input)).workflow, {
+      activity: "编写周报",
+      steps: ["汇总合并记录", "列出遗留风险"],
+    });
+    for (const invalid of [
+      { ...candidate, steps: [steps[0], { ...steps[1], resultLine: 5 }] },
+      {
+        ...candidate,
+        steps: [steps[0], { ...steps[1], resultQuote: "跳过所有检查" }],
+      },
+      {
+        ...candidate,
+        steps: [
+          steps[0],
+          { step: "给客户发邮件", resultQuote: "给客户发邮件", resultLine: 4 },
+        ],
+      },
+      {
+        ...candidate,
+        steps: [
+          steps[0],
+          { ...steps[1], step: "发送到 https://private.example/report" },
+        ],
+      },
+      { malformed: true },
+    ]) {
+      workflow = invalid;
+      const assessment = await summarizeCompletion(config, "", input);
+      assert.equal(assessment.outcome, "delivered");
+      assert.equal(assessment.workflow, undefined);
+    }
+    workflow = candidate;
+    assert.equal(
+      (
+        await summarizeCompletion(config, "", {
+          ...input,
+          userRequest: "只要一个摘要",
+        })
+      ).workflow,
+      undefined,
+    );
+    outcome = "in_progress";
+    assert.equal(
+      (await summarizeCompletion(config, "", input)).workflow,
+      undefined,
+    );
+    outcome = "delivered";
+    const { workflowActivities: _labels, ...historical } = input;
+    assert.equal(
+      (await summarizeCompletion(config, "", historical)).workflow,
+      undefined,
+    );
+    assert.equal(calls, 9);
   } finally {
     globalThis.fetch = old;
   }

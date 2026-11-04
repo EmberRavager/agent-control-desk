@@ -175,3 +175,50 @@ test("macOS permission rejection is actionable in the returned test result witho
     x.notifier.close();
   }
 });
+
+test("notification platform text follows snapshot language and keeps original content", async () => {
+  const x = fixture({ preferences: { details: true } });
+  try {
+    x.notifier.update({
+      preferences: { locale: "en" },
+      notifications: x.notifier.latest,
+    });
+    await x.notifier.test();
+    assert.equal(x.shown[0].options.title, "ACD test notification");
+    await x.notifier.flush();
+    assert.equal(x.shown[1].options.title, "ACD · 结果待检查");
+    assert.equal(x.shown[1].options.body, "private-task-name /private/example");
+    x.notifier.update({
+      preferences: { locale: "en" },
+      notifications: x.notifier.latest,
+    });
+    await x.notifier.show([x.records[0], { ...x.records[0], id: "b" }], {
+      details: false,
+    });
+    assert.match(x.shown[2].options.title, /2 new updates/);
+    assert.equal(
+      x.shown[2].options.body,
+      "Click to view task results or items that need your attention.",
+    );
+  } finally {
+    x.notifier.close();
+  }
+});
+
+test("an existing native notification error follows a later language change", async () => {
+  const x = fixture({ failed: true });
+  try {
+    await x.notifier.test();
+    assert.match(x.notifier.status().error, /系统未能显示通知/);
+    x.notifier.update({
+      preferences: { locale: "en" },
+      notifications: x.notifier.latest,
+    });
+    assert.match(
+      x.notifier.status().error,
+      /The system could not display the notification/,
+    );
+  } finally {
+    x.notifier.close();
+  }
+});

@@ -1,3 +1,4 @@
+import { translate } from "../i18n/index.cjs";
 import { createHash } from "node:crypto";
 import type { Snapshot } from "../contracts/index.js";
 import type {
@@ -23,6 +24,8 @@ export function noticePreferences(store: Store): NoticePreferences {
   };
 }
 export function projectNotices(store: Store, snapshot: Snapshot) {
+  const tr = (source: string) =>
+    translate(snapshot.preferences?.locale, source);
   const add = (
     key: string,
     data: Omit<Notice, "id" | "sequence" | "createdAt" | "desktop" | "active">,
@@ -64,7 +67,7 @@ export function projectNotices(store: Store, snapshot: Snapshot) {
       continue;
     add("question:" + q.id, {
       kind: "attention",
-      title: q.kind === "approval" ? "需要确认操作" : "需要补充信息",
+      title: q.kind === "approval" ? tr("需要确认操作") : tr("需要补充信息"),
       body: q.text.slice(0, 1800),
       questionId: q.id,
       ...(task ? { taskId: task.id, revision: task.revision } : {}),
@@ -100,14 +103,14 @@ export function projectNotices(store: Store, snapshot: Snapshot) {
       continue;
     const title =
       task.status === "review"
-        ? "任务等待人工检查"
+        ? tr("任务等待人工检查")
         : task.status === "unknown"
-          ? "执行状态需要核对"
+          ? tr("执行状态需要核对")
           : task.status === "blocked"
-            ? "任务已阻塞"
+            ? tr("任务已阻塞")
             : task.status === "failed"
-              ? "任务执行失败"
-              : "任务需要你处理";
+              ? tr("任务执行失败")
+              : tr("任务需要你处理");
     add(`task:${task.id}:${task.revision}:${task.status}`, {
       kind,
       title,
@@ -120,7 +123,9 @@ export function projectNotices(store: Store, snapshot: Snapshot) {
   store.projectChangedReports((message) =>
     add("completion:" + message.completion!.id, {
       kind: "result",
-      title: message.completion!.assessed ? "任务完成报告" : "本轮执行结果",
+      title: message.completion!.assessed
+        ? tr("任务完成报告")
+        : tr("本轮执行结果"),
       body: message.text.slice(0, 1800),
       messageId: message.id,
     }),
@@ -128,7 +133,7 @@ export function projectNotices(store: Store, snapshot: Snapshot) {
   for (const message of snapshot.messages.filter((m) => m.attention))
     add("message:" + message.id, {
       kind: "error",
-      title: "总控需要处理",
+      title: tr("总控需要处理"),
       body: message.text.slice(0, 1800),
       messageId: message.id,
     });

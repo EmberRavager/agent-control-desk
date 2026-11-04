@@ -1,3 +1,4 @@
+import { memoryInputSchema } from "../contracts/memory.js";
 import { scheduleInputSchema } from "../contracts/schedules.js";
 import {
   noticeFeed,
@@ -40,7 +41,12 @@ import {
   listSkillTrash,
   restoreSkill,
 } from "./skill-mutations.js";
-import { scanSkills, readSkill, skillRoots } from "./skills.js";
+import {
+  scanSkills,
+  readSkill,
+  skillRoots,
+  localizeSkillCatalog,
+} from "./skills.js";
 import { CodexLiveEvents } from "./codex-live-events.js";
 import {
   readCodexSessions,
@@ -83,6 +89,7 @@ export async function startServer(
   closeSync(fd);
   const capabilities = [
     "model-catalog",
+    "personal-memory",
     "message-idempotency",
     "wechat",
     "wechat-test",
@@ -95,7 +102,9 @@ export async function startServer(
     "completion-reports",
     "routing-retry",
     "agent-allocation",
+    "allocation-priority",
     "schedules",
+    "i18n",
   ];
   const environment =
     options.deps || options.wechat || options.nativeRead ? "test" : "live";
@@ -117,7 +126,12 @@ export async function startServer(
     options.wechat?.client,
   );
   await wechat.init();
-  const liveEvents = new CodexLiveEvents();
+  const liveEvents = new CodexLiveEvents(
+    undefined,
+    undefined,
+    undefined,
+    () => runtime.preferences().locale,
+  );
   const reporter =
     !options.deps || options.deps.report
       ? new CompletionReporter(runtime, (sessionId, turnId) =>
@@ -147,7 +161,13 @@ export async function startServer(
   const insightKey = (session: NativeSession, model: ModelConfig | null) =>
     createHash("sha256")
       .update(
-        JSON.stringify([session.id, session.turnId, session.status, model]),
+        JSON.stringify([
+          session.id,
+          session.turnId,
+          session.status,
+          model,
+          runtime.preferences().locale,
+        ]),
       )
       .digest("hex");
   async function nativeInsight(
@@ -156,6 +176,7 @@ export async function startServer(
     model: ModelConfig | null,
     force = false,
   ): Promise<NativeInsight> {
+    const locale = runtime.preferences().locale;
     const key = insightKey(session, model);
     const cached = insightCache.get(key);
     if (!force && cached && Date.now() - cached.at < 30000) return cached.value;
@@ -180,8 +201,10 @@ export async function startServer(
           return cached.value;
         }
         if (JSON.stringify(runtime.snapshot().model) !== JSON.stringify(model))
-          throw Error("总控模型已更改，请重新分析。");
+          throw Error(runtime.tr("总控模型已更改，请重新分析。"));
         const value = await runtime.analyzeNativeSession(session, context);
+        if (runtime.preferences().locale !== locale)
+          throw Error(runtime.tr("语言设置已更改，请重新分析。"));
         if (insightCache.size >= 100)
           insightCache.delete(insightCache.keys().next().value!);
         insightCache.set(key, { at: Date.now(), value, fingerprint });
@@ -236,12 +259,15 @@ export async function startServer(
   runtime.on("state", identifyNativeTask);
   let skillScanGeneration = 0;
   const skillCatalog = (): SkillCatalog =>
-    store.get<SkillCatalog>("settings", "skills") || {
-      skills: [],
-      roots: [],
-      warnings: [],
-      scannedAt: null,
-    };
+    localizeSkillCatalog(
+      store.get<SkillCatalog>("settings", "skills") || {
+        skills: [],
+        roots: [],
+        warnings: [],
+        scannedAt: null,
+      },
+      runtime.preferences().locale,
+    );
   const skillSources = () =>
     skillCatalog().roots.length
       ? skillCatalog().roots
@@ -252,7 +278,7 @@ export async function startServer(
       projectPath: skillCatalog().projectPath,
     });
     store.put("settings", "skills", catalog);
-    return catalog;
+    return skillCatalog();
   };
   const peers = new Set<ServerResponse>();
   const broadcast = (snapshot: unknown) => {
@@ -276,7 +302,7 @@ export async function startServer(
     };
     try {
       if (req.headers.origin) {
-        json(403, { error: "此服务只接受本机客户端" });
+        json(403, { error: runtime.tr("此服务只接受本机客户端") });
         return;
       }
       if (req.method === "GET" && req.url === "/api/health") {
@@ -289,7 +315,7 @@ export async function startServer(
         supplied.length !== expected.length ||
         !timingSafeEqual(supplied, expected)
       ) {
-        json(401, { error: "客户端未认证" });
+        json(401, { error: runtime.tr("客户端未认证") });
         return;
       }
       if (req.method === "GET" && req.url === "/api/events") {
@@ -302,6 +328,14 @@ export async function startServer(
         );
         peers.add(res);
         req.on("close", () => peers.delete(res));
+        return;
+      }
+      if (req.method === "GET" && req.url === "/api/preferences") {
+        json(200, runtime.preferences());
+        return;
+      }
+      if (req.method === "GET" && req.url === "/api/memories") {
+        json(200, runtime.memories.list());
         return;
       }
       if (req.method === "GET" && req.url === "/api/allocation") {
@@ -318,7 +352,7 @@ export async function startServer(
       ) {
         const report = noticeReport(store, req.url!.split("/")[3]);
         if (report) json(200, report);
-        else json(404, { error: "这份报告不可用" });
+        else json(404, { error: runtime.tr("这份报告不可用") });
         return;
       }
       if (
@@ -341,7 +375,7 @@ export async function startServer(
       ) {
         const id = z.uuid().parse(req.url!.split("/")[3]);
         if (!runtime.schedules.list().some((schedule) => schedule.id === id)) {
-          json(404, { error: "定时任务不存在" });
+          json(404, { error: runtime.tr("定时任务不存在") });
           return;
         }
         json(
@@ -373,18 +407,20 @@ export async function startServer(
           (s) => s.id === decodeURIComponent(req.url!.split("/")[3]),
         );
         if (!skill) {
-          json(404, { error: "技能不在当前扫描结果中，请重新扫描" });
+          json(404, {
+            error: runtime.tr("技能不在当前扫描结果中，请重新扫描"),
+          });
           return;
         }
         json(200, await readSkill(skill, catalog.roots));
         return;
       }
       if (!["POST", "PUT"].includes(req.method || "")) {
-        json(404, { error: "接口不存在" });
+        json(404, { error: runtime.tr("接口不存在") });
         return;
       }
       if (!(req.headers["content-type"] || "").startsWith("application/json")) {
-        json(415, { error: "需要 JSON 请求" });
+        json(415, { error: runtime.tr("需要 JSON 请求") });
         return;
       }
       let size = 0;
@@ -392,12 +428,48 @@ export async function startServer(
       for await (const chunk of req) {
         size += chunk.length;
         if (size > 65536) {
-          json(413, { error: "消息过长" });
+          json(413, { error: runtime.tr("消息过长") });
           return;
         }
         chunks.push(chunk);
       }
       const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+      if (req.method === "PUT" && req.url === "/api/preferences") {
+        const input = z
+          .object({ locale: z.enum(["zh-CN", "en"]) })
+          .strict()
+          .parse(body);
+        json(200, runtime.configurePreferences(input));
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/memories") {
+        json(201, runtime.memories.create(memoryInputSchema.parse(body)));
+        return;
+      }
+      const memoryRoute = /^\/api\/memories\/([a-f0-9-]{36})(\/delete)?$/.exec(
+        req.url || "",
+      );
+      if (memoryRoute) {
+        const id = z.uuid().parse(memoryRoute[1]);
+        const revision = z.number().int().positive();
+        if (req.method === "PUT" && !memoryRoute[2]) {
+          const { expectedRevision, ...input } = memoryInputSchema
+            .extend({ expectedRevision: revision })
+            .parse(body);
+          json(200, runtime.memories.update(id, input, expectedRevision));
+          return;
+        }
+        if (req.method === "POST" && memoryRoute[2]) {
+          const { expectedRevision } = z
+            .strictObject({ expectedRevision: revision })
+            .parse(body);
+          runtime.memories.remove(id, expectedRevision);
+          json(200, { ok: true });
+          return;
+        }
+        json(404, { error: runtime.tr("接口不存在") });
+        return;
+      }
       if (req.method === "POST" && req.url === "/api/schedules") {
         json(201, runtime.schedules.create(scheduleInputSchema.parse(body)));
         return;
@@ -411,7 +483,7 @@ export async function startServer(
         const [, , , rawId, operation] = req.url!.split("/");
         const id = z.uuid().parse(rawId);
         if (!runtime.schedules.list().some((schedule) => schedule.id === id)) {
-          json(404, { error: "定时任务不存在" });
+          json(404, { error: runtime.tr("定时任务不存在") });
           return;
         }
         if (req.method === "PUT" && !operation) {
@@ -432,7 +504,7 @@ export async function startServer(
           );
           return;
         }
-        json(404, { error: "接口不存在" });
+        json(404, { error: runtime.tr("接口不存在") });
         return;
       }
       if (
@@ -440,7 +512,7 @@ export async function startServer(
         /^\/api\/reports\/[a-f0-9]{64}\/retry$/.test(req.url || "")
       ) {
         z.object({}).strict().parse(body);
-        if (!reporter) throw Error("当前测试后台未启用结果汇报。");
+        if (!reporter) throw Error(runtime.tr("当前测试后台未启用结果汇报。"));
         reporter.retry(req.url!.split("/")[3]);
         json(200, runtime.snapshot());
       } else if (
@@ -460,7 +532,9 @@ export async function startServer(
         );
         const session = observation?.sessions.find((item) => item.id === id);
         if (!session || !observation) {
-          json(404, { error: "会话已离开当前观测范围，请刷新后重试。" });
+          json(404, {
+            error: runtime.tr("会话已离开当前观测范围，请刷新后重试。"),
+          });
           return;
         }
         json(
@@ -613,7 +687,9 @@ export async function startServer(
           (item) => item.id === decodeURIComponent(req.url!.split("/")[3]),
         );
         if (!skill) {
-          json(404, { error: "技能不在当前扫描结果中，请重新扫描" });
+          json(404, {
+            error: runtime.tr("技能不在当前扫描结果中，请重新扫描"),
+          });
           return;
         }
         const detail = await readSkill(skill, catalog.roots);
@@ -638,7 +714,9 @@ export async function startServer(
           (s) => s.id === decodeURIComponent(req.url!.split("/")[3]),
         );
         if (!record) {
-          json(404, { error: "技能不在当前扫描结果中，请重新扫描" });
+          json(404, {
+            error: runtime.tr("技能不在当前扫描结果中，请重新扫描"),
+          });
           return;
         }
         const entry = await trashSkill(record, skillSources(), catalog.skills);
@@ -668,7 +746,7 @@ export async function startServer(
           ? realpathSync(input.projectPath)
           : undefined;
         if (projectPath && !statSync(projectPath).isDirectory())
-          throw Error("请选择有效项目目录");
+          throw Error(runtime.tr("请选择有效项目目录"));
         const generation = ++skillScanGeneration;
         const catalog = await scanSkills({
           home: options.skillHome,
@@ -676,7 +754,7 @@ export async function startServer(
         });
         if (generation === skillScanGeneration)
           store.put("settings", "skills", catalog);
-        json(200, catalog);
+        json(200, localizeSkillCatalog(catalog, runtime.preferences().locale));
       } else if (req.method === "POST" && req.url === "/api/agents/manual") {
         const input = z
           .object({ executable: z.string().min(1).max(4096) })
@@ -690,12 +768,13 @@ export async function startServer(
         );
         json(200, runtime.snapshot());
       } else if (req.method === "PUT" && req.url === "/api/allocation") {
+        const id = z.string().min(1).max(200);
+        const projectPath = z.string().min(1).max(32768).optional();
         const input = z
-          .object({
-            agentId: z.string().min(1).max(200).nullable(),
-            projectPath: z.string().min(1).max(32768).optional(),
-          })
-          .strict()
+          .union([
+            z.object({ agentIds: z.array(id).max(30), projectPath }).strict(),
+            z.object({ agentId: id.nullable(), projectPath }).strict(),
+          ])
           .parse(body);
         json(200, runtime.configureAllocation(input));
       } else if (req.method === "POST" && req.url === "/api/model/models") {
@@ -785,17 +864,24 @@ export async function startServer(
       } else if (req.method === "POST" && req.url === "/api/shutdown") {
         json(200, { ok: true });
         setTimeout(() => void close(), 30);
-      } else json(404, { error: "接口不存在" });
+      } else json(404, { error: runtime.tr("接口不存在") });
     } catch (e) {
       if (!res.headersSent)
-        json(400, {
-          error:
-            e instanceof z.ZodError
-              ? "请求参数无效"
-              : e instanceof Error
-                ? e.message
-                : "操作失败",
-        });
+        json(
+          e instanceof Error &&
+            "statusCode" in e &&
+            (e.statusCode === 409 || e.statusCode === 404)
+            ? e.statusCode
+            : 400,
+          {
+            error:
+              e instanceof z.ZodError
+                ? runtime.tr("请求参数无效")
+                : e instanceof Error
+                  ? runtime.userError(e)
+                  : runtime.tr("操作失败"),
+          },
+        );
       else res.destroy();
     }
   });
@@ -842,7 +928,8 @@ export async function startServer(
     throw e;
   }
   const address = server.address();
-  if (!address || typeof address === "string") throw Error("服务地址不可用");
+  if (!address || typeof address === "string")
+    throw Error(runtime.tr("服务地址不可用"));
   const descriptor = {
     url: "http://127.0.0.1:" + address.port,
     token,
@@ -875,7 +962,7 @@ if (
     })
     .catch(() => {
       console.error(
-        "ACD 服务启动失败，请检查端口、运行中的实例和数据目录权限。",
+        "ACD service failed to start. Check the port, running instances, and data directory permissions.",
       );
       process.exitCode = 1;
     });

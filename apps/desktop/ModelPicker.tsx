@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n.js";
 import React, { useMemo, useRef, useState } from "react";
 import type { ModelOption } from "../../packages/contracts/providers.js";
 interface Props {
@@ -15,6 +16,7 @@ export default function ModelPicker({
   disabled,
   source,
 }: Props) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState("");
   const field = useRef<HTMLInputElement>(null);
@@ -34,7 +36,7 @@ export default function ModelPicker({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
-          placeholder="选择模型，或填写完整模型 ID"
+          placeholder={t("选择模型，或填写完整模型 ID")}
           autoComplete="off"
           aria-describedby="model-help"
         />
@@ -46,7 +48,7 @@ export default function ModelPicker({
           aria-controls="model-selection"
           onClick={() => setOpen(!open)}
         >
-          选择模型
+          {t("选择模型")}
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d={open ? "m6 15 6-6 6 6" : "m6 9 6 6 6-6"} />
           </svg>
@@ -56,12 +58,12 @@ export default function ModelPicker({
         <div className="model-selection" id="model-selection">
           <div className="model-selection-head">
             <span>
-              {source === "remote" ? "服务返回的模型" : "参考型号"} ·{" "}
+              {source === "remote" ? t("服务返回的模型") : t("参考型号")} ·{" "}
               {options.length}
             </span>
             <button
               type="button"
-              aria-label="收起模型列表"
+              aria-label={t("收起模型列表")}
               className="icon"
               onClick={() => {
                 setOpen(false);
@@ -75,14 +77,14 @@ export default function ModelPicker({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索模型名称或 ID"
-            aria-label="搜索模型"
+            placeholder={t("搜索模型名称或 ID")}
+            aria-label={t("搜索模型")}
             autoFocus
           />
           {filtered.length ? (
             <select
               size={Math.min(6, Math.max(3, filtered.length))}
-              aria-label="可选模型"
+              aria-label={t("可选模型")}
               value={filtered.some((m) => m.id === value) ? value : ""}
               onChange={(e) => {
                 onChange(e.target.value);
@@ -92,7 +94,7 @@ export default function ModelPicker({
               }}
             >
               <option value="" disabled hidden>
-                选择模型
+                {t("选择模型")}
               </option>
               {filtered.map((m) => (
                 <option key={m.id} value={m.id} title={m.id}>
@@ -103,8 +105,8 @@ export default function ModelPicker({
           ) : (
             <p className="model-picker-empty">
               {options.length
-                ? "没有匹配项，可以直接填写模型 ID。"
-                : "暂无列表。先获取模型列表，或直接填写模型 ID。"}
+                ? t("没有匹配项，可以直接填写模型 ID。")
+                : t("暂无列表。先获取模型列表，或直接填写模型 ID。")}
             </p>
           )}
         </div>

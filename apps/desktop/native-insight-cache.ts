@@ -1,3 +1,5 @@
+import { translate } from "../../packages/i18n/index.cjs";
+import type { Locale } from "../../packages/contracts/index.js";
 import type { NativeInsight } from "../../packages/contracts/index.js";
 
 export const nativeInsightInterval = 30_000;
@@ -20,6 +22,7 @@ export function loadNativeInsight(
   key: string,
   load: () => Promise<NativeInsight>,
   force = false,
+  locale: Locale = "zh-CN",
 ): Promise<NativeInsight> {
   let entry = cache.get(key);
   if (entry?.pending) return entry.pending;
@@ -37,7 +40,7 @@ export function loadNativeInsight(
     .then(load)
     .then((value) => {
       if (cache.get(key) !== current)
-        throw Error("任务或模型配置已更新，请重新分析。");
+        throw Error(translate(locale, "任务或模型配置已更新，请重新分析。"));
       current.value = value;
       // This is the last validation time. The service may reuse an unchanged
       // analysis while preserving its original generatedAt timestamp.
@@ -46,7 +49,9 @@ export function loadNativeInsight(
     })
     .catch((failure: unknown) => {
       current.error =
-        failure instanceof Error ? failure.message : "暂时无法分析当前任务";
+        failure instanceof Error
+          ? failure.message
+          : translate(locale, "暂时无法分析当前任务");
       throw failure;
     })
     .finally(() => {

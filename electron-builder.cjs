@@ -13,6 +13,7 @@ module.exports = {
     "dist/renderer/**",
     "dist/runtime/**",
     "packages/core/service-launch.cjs",
+    "packages/i18n/*.cjs",
     "!**/*.map",
     "!**/{test,tests,__tests__}{,/**}",
   ],

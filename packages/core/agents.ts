@@ -1,3 +1,4 @@
+import type { Locale } from "../contracts/index.js";
 import { access, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { delimiter, join, basename, isAbsolute } from "node:path";
@@ -267,10 +268,14 @@ export async function verifyAgent(
   });
 }
 
-export function createAdapter(kind: AgentKind): AgentAdapter {
-  if (kind === "codex") return new CodexAdapter();
-  if (kind === "claude") return new ClaudeAdapter();
-  if (kind === "opencode") return new OpenCodeAdapter();
-  if (kind === "pi") return new PiAdapter();
+export function createAdapter(
+  kind: AgentKind,
+  locale: () => Locale = () => "zh-CN",
+): AgentAdapter {
+  if (kind === "codex") return new CodexAdapter(undefined, 30000, 5000, locale);
+  if (kind === "claude") return new ClaudeAdapter(undefined, 5000, locale);
+  if (kind === "opencode")
+    return new OpenCodeAdapter(undefined, 30000, 5000, locale);
+  if (kind === "pi") return new PiAdapter(undefined, 30000, 5000, locale);
   throw new Error(`${kind} 的执行适配尚未接入。`);
 }

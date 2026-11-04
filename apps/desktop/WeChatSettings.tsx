@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n.js";
 import React, { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import type { WeChatStatus } from "../../packages/contracts/wechat.js";
@@ -22,6 +23,7 @@ export default function WeChatSettings({
   request,
   pickDirectory,
 }: Props) {
+  const { t, dateLocale } = useI18n();
   const [status, setStatus] = useState<WeChatStatus | null>(null),
     [cwd, setCwd] = useState(""),
     [notifications, setNotifications] = useState(true),
@@ -62,7 +64,7 @@ export default function WeChatSettings({
         }
       } catch (e) {
         if (live && version === generation.current)
-          setReadError(e instanceof Error ? e.message : "无法读取微信状态");
+          setReadError(e instanceof Error ? e.message : t("无法读取微信状态"));
       } finally {
         inFlight = false;
       }
@@ -87,7 +89,7 @@ export default function WeChatSettings({
           if (live) setQr(data);
         })
         .catch(() => {
-          if (live) setError("二维码无法显示，请重新获取。");
+          if (live) setError(t("二维码无法显示，请重新获取。"));
         });
     return () => {
       live = false;
@@ -111,7 +113,7 @@ export default function WeChatSettings({
       if (path === "test") setTestSubmitted(true);
       return next;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "微信操作失败");
+      setError(e instanceof Error ? e.message : t("微信操作失败"));
     } finally {
       working.current = false;
       setBusy(false);
@@ -122,7 +124,7 @@ export default function WeChatSettings({
       const path = await api.current.pickDirectory();
       if (path) setCwd(path);
     } catch {
-      setError("无法选择工作目录");
+      setError(t("无法选择工作目录"));
     }
   }
   async function connect() {
@@ -133,7 +135,7 @@ export default function WeChatSettings({
         if (!path) return;
         setCwd(path);
       } catch {
-        setError("无法选择工作目录");
+        setError(t("无法选择工作目录"));
         return;
       }
     }
@@ -149,8 +151,8 @@ export default function WeChatSettings({
     <>
       <div className="settings-section-heading">
         <div>
-          <h2 id="settings-wechat-title">个人微信</h2>
-          <p>用手机交代任务，回到总控查看同一份进展。</p>
+          <h2 id="settings-wechat-title">{t("个人微信")}</h2>
+          <p>{t("用手机交代任务，回到总控查看同一份进展。")}</p>
         </div>
         <span
           className={
@@ -158,12 +160,12 @@ export default function WeChatSettings({
             (status?.state === "connected" ? "configured" : "")
           }
         >
-          {status ? labels[status.state] : "正在读取…"}
+          {status ? t(labels[status.state]) : t("正在读取…")}
         </span>
       </div>
       <div className="settings-info-block wechat-controls">
         <label className="field-label" htmlFor="wechat-cwd">
-          微信新任务的工作目录
+          {t("微信新任务的工作目录")}
         </label>
         <div className="wechat-directory">
           <input
@@ -171,19 +173,20 @@ export default function WeChatSettings({
             readOnly
             value={cwd}
             title={cwd}
-            placeholder="选择本机文件夹"
+            placeholder={t("选择本机文件夹")}
           />
           <button
             className="button"
             disabled={busy}
             onClick={() => void choose()}
           >
-            选择文件夹
+            {t("选择文件夹")}
           </button>
         </div>
         <p className="field-help">
-          默认使用 ACD
-          专用目录，可更换。只影响微信新任务，已有任务保留各自目录。
+          {t(
+            "默认使用 ACD 专用目录，可更换。只影响微信新任务，已有任务保留各自目录。",
+          )}
         </p>
         <label className="wechat-notify">
           <input
@@ -191,10 +194,12 @@ export default function WeChatSettings({
             checked={notifications}
             onChange={(e) => setNotifications(e.target.checked)}
           />
-          同步桌面任务进展
+          {t("同步桌面任务进展")}
         </label>
         <p className="field-help">
-          微信内的提问和任务始终回复；开启后，也同步桌面发起的总控回复、确认问题和任务反馈。
+          {t(
+            "微信内的提问和任务始终回复；开启后，也同步桌面发起的总控回复、确认问题和任务反馈。",
+          )}
         </p>
         <label className="wechat-notify">
           <input
@@ -202,10 +207,12 @@ export default function WeChatSettings({
             checked={completionReports}
             onChange={(event) => setCompletionReports(event.target.checked)}
           />
-          推送完成报告与建议
+          {t("同步总控完成报告")}
         </label>
         <p className="field-help">
-          发往当前扫码绑定的微信，包含任务名、结果摘要和建议，不发送执行日志或文件。仅推送开启后完成的报告。
+          {t(
+            "总控对话和绑定的微信显示同一份完成摘要，包括独立 Agent 会话的结果。仅推送开启后完成的报告。",
+          )}
         </p>
         {configured && (
           <button
@@ -219,7 +226,7 @@ export default function WeChatSettings({
               })
             }
           >
-            保存微信设置
+            {t("保存微信设置")}
           </button>
         )}
       </div>
@@ -230,19 +237,25 @@ export default function WeChatSettings({
         <div className="wechat-pairing">
           <div className="wechat-qr">
             {qr ? (
-              <img src={qr} width="216" height="216" alt="微信登录二维码" />
+              <img
+                src={qr}
+                width="216"
+                height="216"
+                alt={t("微信登录二维码")}
+              />
             ) : (
-              <span>正在生成二维码…</span>
+              <span>{t("正在生成二维码…")}</span>
             )}
           </div>
           <div>
-            <h3>{status ? labels[status.state] : "扫码连接"}</h3>
+            <h3>{status ? t(labels[status.state]) : t("扫码连接")}</h3>
             <p>
-              使用个人微信扫码，在手机上确认连接。连接后先发送
-              /帮助，收到回复后再开始使用。
+              {t(
+                "使用个人微信扫码，在手机上确认连接。连接后先发送 /帮助，收到回复后再开始使用。",
+              )}
             </p>
             <p className="field-help">
-              只有扫码绑定者可以调控 ACD。二维码到期后需重新获取。
+              {t("只有扫码绑定者可以调控 ACD。二维码到期后需重新获取。")}
             </p>
             {status?.state === "need_code" && (
               <form
@@ -252,7 +265,7 @@ export default function WeChatSettings({
                   setCode("");
                 }}
               >
-                <label htmlFor="wechat-code">手机显示的验证码</label>
+                <label htmlFor="wechat-code">{t("手机显示的验证码")}</label>
                 <div className="wechat-directory">
                   <input
                     id="wechat-code"
@@ -266,7 +279,7 @@ export default function WeChatSettings({
                     className="button"
                     disabled={busy || !/^\d{4,8}$/.test(code)}
                   >
-                    提交
+                    {t("提交")}
                   </button>
                 </div>
               </form>
@@ -286,14 +299,14 @@ export default function WeChatSettings({
           onClick={() => void connect()}
         >
           {busy
-            ? "正在处理…"
+            ? t("正在处理…")
             : status?.state === "waiting_scan" ||
                 status?.state === "expired" ||
                 status?.state === "error"
-              ? "重新获取二维码"
+              ? t("重新获取二维码")
               : configured
-                ? "重新扫码"
-                : "扫码连接微信"}
+                ? t("重新扫码")
+                : t("扫码连接微信")}
         </button>
         {(configured || status?.canResume) &&
           ((status?.canResume ?? status?.state === "paused") ? (
@@ -302,7 +315,7 @@ export default function WeChatSettings({
               disabled={busy}
               onClick={() => void action("resume")}
             >
-              恢复连接
+              {t("恢复连接")}
             </button>
           ) : status?.state === "connected" ||
             status?.state === "connecting" ? (
@@ -311,7 +324,7 @@ export default function WeChatSettings({
               disabled={busy}
               onClick={() => void action("pause")}
             >
-              暂停连接
+              {t("暂停连接")}
             </button>
           ) : null)}
         {status && status.state !== "disconnected" && (
@@ -320,7 +333,7 @@ export default function WeChatSettings({
             disabled={busy}
             onClick={() => void action("disconnect")}
           >
-            断开并移除登录
+            {t("断开并移除登录")}
           </button>
         )}
       </div>
@@ -329,27 +342,29 @@ export default function WeChatSettings({
           <div className="settings-info-heading">
             <h3>
               {status.lastSubmissionHasMessageId === false
-                ? "微信送达待核对"
+                ? t("微信送达待核对")
                 : status.lastReceivedAt && status.lastSubmittedAt
-                  ? "已收到消息并提交回复"
-                  : "收发待验证"}
+                  ? t("已收到消息并提交回复")
+                  : t("收发待验证")}
             </h3>
             <button
               className="button"
               disabled={busy}
               onClick={() => void action("test")}
             >
-              发送测试消息
+              {t("发送测试消息")}
             </button>
           </div>
           <p className="field-help">
             {status.lastSubmissionHasMessageId === false
-              ? "最近一次请求已提交，微信未返回消息编号。可在绑定会话发送 /帮助 检查回复。"
-              : "在微信发送 /帮助 后，可测试回传并在手机上确认。"}
+              ? t(
+                  "最近一次请求已提交，微信未返回消息编号。可在绑定会话发送 /帮助 检查回复。",
+                )
+              : t("在微信发送 /帮助 后，可测试回传并在手机上确认。")}
           </p>
           {testSubmitted && (
             <p className="field-help" role="status">
-              测试消息已提交，请在微信确认收到。
+              {t("测试消息已提交，请在微信确认收到。")}
             </p>
           )}
         </div>
@@ -357,80 +372,94 @@ export default function WeChatSettings({
       {status?.ownerHint && (
         <dl className="settings-facts">
           <div>
-            <dt>绑定者</dt>
+            <dt>{t("绑定者")}</dt>
             <dd>{status.ownerHint}</dd>
           </div>
           {status.lastPollAt && (
             <div>
-              <dt>最近同步</dt>
-              <dd>{new Date(status.lastPollAt).toLocaleString()}</dd>
+              <dt>{t("最近同步")}</dt>
+              <dd>{new Date(status.lastPollAt).toLocaleString(dateLocale)}</dd>
             </div>
           )}
           {status.lastReceivedAt && (
             <div>
-              <dt>最近收到消息</dt>
-              <dd>{new Date(status.lastReceivedAt).toLocaleString()}</dd>
+              <dt>{t("最近收到消息")}</dt>
+              <dd>
+                {new Date(status.lastReceivedAt).toLocaleString(dateLocale)}
+              </dd>
             </div>
           )}
           {status.lastSubmittedAt && (
             <div>
-              <dt>最近提交反馈</dt>
-              <dd>{new Date(status.lastSubmittedAt).toLocaleString()}</dd>
+              <dt>{t("最近提交反馈")}</dt>
+              <dd>
+                {new Date(status.lastSubmittedAt).toLocaleString(dateLocale)}
+              </dd>
             </div>
           )}
         </dl>
       )}
       {status?.lastIgnoredReason && !status.lastReceivedAt && (
         <p className="field-help">
-          已收到但未处理：{status.lastIgnoredReason}
-          。请在扫码账号与当前联系人的私聊中发送 /帮助。
+          {t(
+            "已收到但未处理：{reason}。请在扫码账号与当前联系人的私聊中发送 /帮助。",
+            { reason: status.lastIgnoredReason },
+          )}
         </p>
       )}
       {Boolean(status?.uncertainDeliveries) && (
         <p className="field-help">
-          有 {status!.uncertainDeliveries}{" "}
-          条反馈未能确认是否提交，未自动重发。请在微信发送 /状态 核对。
+          {t(
+            "有 {count} 条反馈未能确认是否提交，未自动重发。请在微信发送 /状态 核对。",
+            { count: status!.uncertainDeliveries },
+          )}
         </p>
       )}
       {Boolean(status?.uncertainOperations) && (
         <p className="form-error" role="alert">
-          有 {status!.uncertainOperations}{" "}
-          条此前操作的结果待核对，没有自动重放，请在总控检查任务。
+          {t(
+            "有 {count} 条此前操作的结果待核对，没有自动重放，请在总控检查任务。",
+            { count: status!.uncertainOperations },
+          )}
         </p>
       )}
       <div className="settings-info-block">
-        <h3>在微信里怎么用</h3>
+        <h3>{t("在微信里怎么用")}</h3>
         <p>
-          直接发文字交代任务，或补充已有要求。指令与自然语言消息共用现有总控和任务。
+          {t(
+            "直接发文字交代任务，或补充已有要求。指令与自然语言消息共用现有总控和任务。",
+          )}
         </p>
         <dl className="settings-storage-list">
           <div>
             <dt>
-              <code>/状态</code>
+              <code>{t("/状态")}</code>
             </dt>
-            <dd>查看最近任务和待处理问题。</dd>
+            <dd>{t("查看最近任务和待处理问题。")}</dd>
           </div>
           <div>
             <dt>
-              <code>/停止 任务编号</code>
+              <code>{t("/停止 任务编号")}</code>
             </dt>
-            <dd>请求停止，已经产生的文件修改仍会保留。</dd>
+            <dd>{t("请求停止，已经产生的文件修改仍会保留。")}</dd>
           </div>
           <div>
             <dt>
-              <code>/回答 问题编号 选项或说明</code>
+              <code>{t("/回答 问题编号 选项或说明")}</code>
             </dt>
-            <dd>回答澄清或授权问题，原生授权使用给定选项。</dd>
+            <dd>{t("回答澄清或授权问题，原生授权使用给定选项。")}</dd>
           </div>
           <div>
             <dt>
-              <code>/完成 任务编号</code>
+              <code>{t("/完成 任务编号")}</code>
             </dt>
-            <dd>检查产出之后确认完成。</dd>
+            <dd>{t("检查产出之后确认完成。")}</dd>
           </div>
         </dl>
         <p className="field-help">
-          电脑和本地后台需要保持运行。当前只接收绑定者的一对一文字，不读取其他聊天或处理群消息。微信账号是否能完成扫码、收发，仍受平台实际开放情况影响。
+          {t(
+            "电脑和本地后台需要保持运行。当前只接收绑定者的一对一文字，不读取其他聊天或处理群消息。微信账号是否能完成扫码、收发，仍受平台实际开放情况影响。",
+          )}
         </p>
       </div>
     </>

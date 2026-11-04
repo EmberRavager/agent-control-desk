@@ -2,6 +2,12 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+[![Download for macOS Apple Silicon](https://img.shields.io/badge/macOS_Apple_Silicon-Download_DMG-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.8/Agent-Control-Desk-0.1.8-mac-arm64.dmg)
+
+[Download ZIP](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.8/Agent-Control-Desk-0.1.8-mac-arm64.zip) · [All releases](https://github.com/EmberRavager/agent-control-desk/releases)
+
+v0.1.8 test release for Macs with Apple Silicon (M1 or later). The app is ad-hoc signed and has not been notarized by Apple.
+
 **One conversation. All your agents.**
 
 Agent Control Desk (ACD) is a local control center for **task routing and multi-session management**. Give instructions in one conversation, distribute work to Codex, Claude Code, OpenCode, or Pi, and follow each task's progress, pending questions, and deliverables in one place.
@@ -24,7 +30,7 @@ I want one conversation where I can assign work, follow the sessions, and receiv
 
 The supervisor uses your message, working directory, recent conversation, and existing tasks to distinguish discussion from requests to create, update, query, or stop work. It asks for clarification when the target is unclear. One instruction can produce several tasks; ordinary discussion does not automatically start execution.
 
-Choose an agent for a new task, or let ACD assign one. Automatic assignment checks project and global defaults before considering eligible candidates and the supervisor's suggestion. Every candidate must be connected, available, supported, and meet the required protocol capabilities. If your explicitly selected agent cannot take the task, ACD explains why and keeps the message for you to adjust. Task details show the actual assignment reason.
+Choose an agent for a new task, or let ACD assign one. Automatic assignment tries the project's ranked agents first, then the global ranking, before considering other eligible candidates and the supervisor's suggestion. Every candidate must be connected, available, supported, and meet the required protocol capabilities. If your explicitly selected agent cannot take the task, ACD explains why and keeps the message for you to adjust. Task details show the actual assignment reason.
 
 Configure the supervisor model separately. Execution agents retain their own models, accounts, tools, and project settings. See [routing and assignment](docs/routing.md) for the full policy.
 
@@ -44,11 +50,11 @@ Configure the supervisor model separately. Execution agents retain their own mod
 | Agent connections              | Discover supported local programs or select an executable manually, then check whether the selected program starts                                             |
 | Supervisor models              | Connect cloud, local, or custom compatible services; fetch model lists, search, or enter a model ID                                                            |
 | Scheduled tasks                | Create one-time, interval, daily, or weekly plans; edit, pause, resume, delete, and inspect trigger records                                                    |
-| Skill management               | Scan global or selected-project skills, search, preview sources, create, move to trash, and restore; translate previews into Chinese                           |
+| Skill management               | Scan global or selected-project skills, search, preview sources, create, move to trash, and restore; translate previews into the selected interface language   |
 | Notification center            | Review unread items, locate tasks or questions, and configure desktop alerts, sound, and message content                                                       |
 | Personal WeChat (experimental) | Pair an account so the bound user can send text requests, check progress, and answer questions; configure feedback and completion-report forwarding separately |
 | Background operation           | Keep the desktop app in the menu bar or tray when its window closes; the local task service can continue after the desktop app exits                           |
-| Appearance                     | Light and dark themes                                                                                                                                          |
+| Appearance                     | Light and dark themes; Simplified Chinese and English                                                                                                          |
 
 ### Supported agents
 
@@ -60,6 +66,10 @@ Configure the supervisor model separately. Execution agents retain their own mod
 | Pi (≥ 0.84.3) | Supported               | Supported                         | Confirmation, selection, and text input          |
 
 All four adapters expose a stop operation; confirmation depends on the native protocol. OpenClaw, Hermes, and DeepSeek Harness can currently be discovered, but do not have execution adapters. See [agent adapters](docs/agent-adapters.md) for details.
+
+### Personal memory
+
+Open **Settings → Personal memory** to manage preferences and workflows across tasks. An explicit preference takes effect immediately. A repeated workflow becomes available once two distinct delivered tasks provide matching evidence. [How personal memory works](docs/configuration.md#个人记忆)
 
 ## Install and get started
 
@@ -85,7 +95,7 @@ Select a working directory and enter:
 
 > Check this project's README and tell me how to start it. Analyze only; do not modify files.
 
-Keep automatic assignment enabled or choose an agent for this new task. Set project or global defaults under Settings → Task Assignment (设置 → 任务分配) when you want a persistent preference.
+Keep automatic assignment enabled or choose an agent for this new task. Rank agents from highest to lowest priority under Settings → Task Assignment (设置 → 任务分配) for a project or for all projects.
 
 ### 5. Follow progress and review the result
 
@@ -106,6 +116,10 @@ Use the control conversation and sidebar to follow progress, add requirements to
 
 You can also create and manage plans directly on the Scheduled Tasks (定时任务) page without a supervisor-model call. Plans use a fixed agent; the composer's per-message agent and capability options apply to immediate new tasks. See [scheduled tasks](docs/schedules.md).
 
+### Choose a language
+
+Select Simplified Chinese (`zh-CN`) or English (`en`) under Settings → Appearance → Language, then save. The desktop app and CLI share the saved preference when they use the same local data directory. Existing conversations and original task content stay unchanged. See [language settings](docs/configuration.md#语言设置) for CLI options and what changes with the language.
+
 ### Use the CLI
 
 Install the CLI package, or run `npm link` after building from source, to use `acd`:
@@ -119,11 +133,11 @@ acd inbox                                # Notifications and unread items
 acd schedules                            # Saved schedules
 ```
 
-Get agent IDs from `acd agents list` before selecting an executor or setting a default:
+Get agent IDs from `acd agents list` before selecting an executor or ranking agents:
 
 ```sh
 acd send "Check the project; I need to add instructions during execution" --agent <agent-id> --require steer
-acd agents default <agent-id> --project /absolute/path/to/project
+acd agents default <first-agent-id> <second-agent-id> --project /absolute/path/to/project
 ```
 
 Run `acd --help` for stop, answer, accept, and other commands. Common queries support `--json`. See [installation](docs/distribution.md) for the CLI package and the [development and CLI guide](docs/development.md) for more commands.
@@ -167,7 +181,7 @@ Detailed guides are currently written in Chinese.
 | Guide                                                    | Contents                                                                   |
 | -------------------------------------------------------- | -------------------------------------------------------------------------- |
 | [Installation and distribution](docs/distribution.md)    | Desktop and CLI installation, upgrades, and package builds                 |
-| [Routing and assignment](docs/routing.md)                | Intent handling, defaults, capability checks, and assignment reasons       |
+| [Routing and assignment](docs/routing.md)                | Intent handling, priority order, capability checks, and assignment reasons |
 | [Native-session observation](docs/native-observation.md) | Codex synchronization, AI task summaries, and data scope                   |
 | [Completion reports](docs/completion-reports.md)         | Delivery assessment, summaries, suggestions, and duplicate-report handling |
 | [Scheduled tasks](docs/schedules.md)                     | Rules, trigger records, editing, and recovery boundaries                   |

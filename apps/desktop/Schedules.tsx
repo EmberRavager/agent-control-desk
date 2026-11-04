@@ -1,3 +1,9 @@
+import {
+  translate as translateMessage,
+  dateLocale as localeForDate,
+  type Locale,
+} from "../../packages/i18n/index.cjs";
+import { useI18n } from "./i18n.js";
 import React, {
   useEffect,
   useRef,
@@ -52,25 +58,36 @@ const taskStates: Record<Task["status"], string> = {
   cancelled: "已停止",
   unknown: "状态待确认",
 };
-const message = (error: unknown) =>
-  error instanceof Error ? error.message : "操作失败，请重试。";
+const message = (error: unknown, locale: Locale) =>
+  error instanceof Error
+    ? error.message
+    : translateMessage(locale, "操作失败，请重试。");
 const localZone = () =>
   Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai";
-export function scheduleRuleLabel(rule: ScheduleRule): string {
-  if (rule.kind === "once") return "单次 · " + dateLabel(rule.at);
-  if (rule.kind === "interval") return `每 ${rule.minutes} 分钟`;
+export function scheduleRuleLabel(
+  rule: ScheduleRule,
+  locale: Locale = "zh-CN",
+): string {
+  if (rule.kind === "once")
+    return translateMessage(locale, "单次 · {time}", {
+      time: dateLabel(rule.at, locale),
+    });
+  if (rule.kind === "interval")
+    return translateMessage(locale, "每 {minutes} 分钟", {
+      minutes: rule.minutes,
+    });
   const prefix =
     rule.kind === "daily"
-      ? "每天"
+      ? translateMessage(locale, "每天")
       : [...rule.days]
           .sort((a, b) => a - b)
-          .map((day) => weekdays[day])
-          .join("、");
+          .map((day) => translateMessage(locale, weekdays[day]))
+          .join(locale === "en" ? ", " : "、");
   return `${prefix} ${rule.time} · ${rule.timeZone}`;
 }
-function dateLabel(value: string | null | undefined) {
+function dateLabel(value: string | null | undefined, locale: Locale = "zh-CN") {
   return value
-    ? new Date(value).toLocaleString("zh-CN", { hour12: false })
+    ? new Date(value).toLocaleString(localeForDate(locale), { hour12: false })
     : "—";
 }
 function localDateInput(value: string) {
@@ -98,6 +115,7 @@ function Dialog({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     ref.current?.showModal();
@@ -116,7 +134,7 @@ function Dialog({
         <h2>{title}</h2>
         <button
           className="icon"
-          aria-label="关闭"
+          aria-label={t("关闭")}
           disabled={busy}
           onClick={onClose}
         >
@@ -142,6 +160,7 @@ function ScheduleEditor({
   save: (input: ScheduleInput) => Promise<void>;
   onClose: () => void;
 }) {
+  const { t, locale } = useI18n();
   const [name, setName] = useState(record?.name || "");
   const [prompt, setPrompt] = useState(record?.prompt || "");
   const [cwd, setCwd] = useState(record?.cwd || projectPath);
@@ -183,7 +202,7 @@ function ScheduleEditor({
       const path = await pickDirectory();
       if (path) setCwd(path);
     } catch (failure) {
-      setError(message(failure));
+      setError(message(failure, locale));
     } finally {
       setBusy(false);
     }
@@ -196,7 +215,7 @@ function ScheduleEditor({
     if (kind === "once") {
       const date = new Date(at);
       if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) {
-        setError("请选择将来的执行时间。");
+        setError(t("请选择将来的执行时间。"));
         return;
       }
       rule = { kind, at: date.toISOString() };
@@ -218,7 +237,9 @@ function ScheduleEditor({
     });
     if (!parsed.success) {
       setError(
-        "请完整填写名称、执行内容、Agent 和目录，并检查时间、时区与星期。间隔须为 1–525600 分钟的整数。",
+        t(
+          "请完整填写名称、执行内容、Agent 和目录，并检查时间、时区与星期。间隔须为 1–525600 分钟的整数。",
+        ),
       );
       return;
     }
@@ -227,61 +248,61 @@ function ScheduleEditor({
       await save(parsed.data);
       onClose();
     } catch (failure) {
-      setError(message(failure));
+      setError(message(failure, locale));
     } finally {
       setBusy(false);
     }
   }
   return (
     <Dialog
-      title={record ? "编辑定时任务" : "新建定时任务"}
+      title={record ? t("编辑定时任务") : t("新建定时任务")}
       busy={busy}
       onClose={onClose}
     >
       <form onSubmit={(event) => void submit(event)}>
         <fieldset disabled={busy} className="schedule-form-fields">
           <label className="setting-field">
-            <span>名称</span>
+            <span>{t("名称")}</span>
             <input
               autoFocus
               required
               maxLength={120}
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="例如：每日项目进展"
+              placeholder={t("例如：每日项目进展")}
             />
           </label>
           <label className="setting-field">
-            <span>每次执行的内容</span>
+            <span>{t("每次执行的内容")}</span>
             <textarea
               required
               rows={4}
               maxLength={20000}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="明确每次要完成的工作、范围和交付结果"
+              placeholder={t("明确每次要完成的工作、范围和交付结果")}
             />
           </label>
           {!agents.length && (
             <p className="form-error">
-              请先在“连接”中接入一个可用的执行 Agent。
+              {t("请先在“连接”中接入一个可用的执行 Agent。")}
             </p>
           )}
           <div className="schedule-form-grid">
             <label className="setting-field">
-              <span>执行 Agent</span>
+              <span>{t("执行 Agent")}</span>
               <select
                 required
                 value={agentId}
                 onChange={(event) => setAgentId(event.target.value)}
               >
                 <option value="" disabled>
-                  选择已接入的 Agent
+                  {t("选择已接入的 Agent")}
                 </option>
                 {record &&
                   !agents.some((agent) => agent.id === record.agentId) && (
                     <option value={record.agentId} disabled>
-                      原 Agent 当前不可用
+                      {t("原 Agent 当前不可用")}
                     </option>
                   )}
                 {agents.map((agent) => (
@@ -292,28 +313,28 @@ function ScheduleEditor({
               </select>
             </label>
             <label className="setting-field">
-              <span>执行频率</span>
+              <span>{t("执行频率")}</span>
               <select
                 value={kind}
                 onChange={(event) =>
                   setKind(event.target.value as ScheduleRule["kind"])
                 }
               >
-                <option value="once">仅执行一次</option>
-                <option value="interval">固定间隔</option>
-                <option value="daily">每天</option>
-                <option value="weekly">每周</option>
+                <option value="once">{t("仅执行一次")}</option>
+                <option value="interval">{t("固定间隔")}</option>
+                <option value="daily">{t("每天")}</option>
+                <option value="weekly">{t("每周")}</option>
               </select>
             </label>
           </div>
           <label className="setting-field">
-            <span>工作目录</span>
+            <span>{t("工作目录")}</span>
             <div className="schedule-directory">
               <input
                 required
                 readOnly
                 value={cwd}
-                placeholder="选择本机工作目录"
+                placeholder={t("选择本机工作目录")}
                 title={cwd}
               />
               <button
@@ -321,13 +342,15 @@ function ScheduleEditor({
                 className="button"
                 onClick={() => void chooseDirectory()}
               >
-                选择目录
+                {t("选择目录")}
               </button>
             </div>
           </label>
           {kind === "once" ? (
             <label className="setting-field">
-              <span>执行时间 · {localZone()}</span>
+              <span>
+                {t("执行时间 ·")} {localZone()}
+              </span>
               <input
                 required
                 type="datetime-local"
@@ -335,12 +358,12 @@ function ScheduleEditor({
                 onChange={(event) => setAt(event.target.value)}
               />
               <small className="field-help">
-                按本机当前时区选择，保存为固定时间。
+                {t("按本机当前时区选择，保存为固定时间。")}
               </small>
             </label>
           ) : kind === "interval" ? (
             <label className="setting-field">
-              <span>每隔多少分钟</span>
+              <span>{t("每隔多少分钟")}</span>
               <input
                 type="number"
                 min={1}
@@ -351,13 +374,13 @@ function ScheduleEditor({
                 onChange={(event) => setMinutes(event.target.value)}
               />
               <small className="field-help">
-                首次执行在保存后一个间隔，后续按此节奏运行。
+                {t("首次执行在保存后一个间隔，后续按此节奏运行。")}
               </small>
             </label>
           ) : (
             <div className="schedule-form-grid">
               <label className="setting-field">
-                <span>执行时刻</span>
+                <span>{t("执行时刻")}</span>
                 <input
                   required
                   type="time"
@@ -366,7 +389,7 @@ function ScheduleEditor({
                 />
               </label>
               <label className="setting-field">
-                <span>时区</span>
+                <span>{t("时区")}</span>
                 <input
                   required
                   value={timeZone}
@@ -378,7 +401,7 @@ function ScheduleEditor({
           )}
           {kind === "weekly" && (
             <fieldset className="schedule-weekdays">
-              <legend>执行日期</legend>
+              <legend>{t("执行日期")}</legend>
               {[1, 2, 3, 4, 5, 6, 0].map((day) => (
                 <label key={day}>
                   <input
@@ -392,15 +415,17 @@ function ScheduleEditor({
                       )
                     }
                   />
-                  {weekdays[day]}
+                  {t(weekdays[day])}
                 </label>
               ))}
             </fieldset>
           )}
         </fieldset>
         <p className="schedule-form-note">
-          后台运行且电脑在线时执行。离线错过不补跑；上一轮未结束时跳过本轮。
-          {record ? "修改只影响后续触发。" : "保存后即启用。"}
+          {t(
+            "后台运行且电脑在线时执行。离线错过不补跑；上一轮未结束时跳过本轮。",
+          )}
+          {record ? t("修改只影响后续触发。") : t("保存后即启用。")}
         </p>
         {error && (
           <p className="form-error" role="alert">
@@ -414,10 +439,10 @@ function ScheduleEditor({
             disabled={busy}
             onClick={onClose}
           >
-            取消
+            {t("取消")}
           </button>
           <button className="button primary" disabled={busy || !agents.length}>
-            {busy ? "保存中…" : record ? "保存修改" : "创建并启用"}
+            {busy ? t("保存中…") : record ? t("保存修改") : t("创建并启用")}
           </button>
         </div>
       </form>
@@ -426,6 +451,7 @@ function ScheduleEditor({
 }
 
 export default function Schedules(props: Props) {
+  const { t, locale } = useI18n();
   const api = useRef(props);
   api.current = props;
   const [loaded, setLoaded] = useState<Schedule[]>(props.schedules || []),
@@ -459,7 +485,7 @@ export default function Schedules(props: Props) {
       if (live.current && version === loadVersion.current) setLoaded(values);
     } catch (failure) {
       if (live.current && version === loadVersion.current)
-        setLoadError(message(failure));
+        setLoadError(message(failure, locale));
     } finally {
       if (live.current && version === loadVersion.current) setLoading(false);
     }
@@ -477,7 +503,7 @@ export default function Schedules(props: Props) {
       if (live.current && version === runsVersion.current) setRuns(values);
     } catch (failure) {
       if (live.current && version === runsVersion.current)
-        setRunsError(message(failure));
+        setRunsError(message(failure, locale));
     } finally {
       if (live.current && version === runsVersion.current)
         setRunsLoading(false);
@@ -528,18 +554,18 @@ export default function Schedules(props: Props) {
       }
       await load();
     } catch (failure) {
-      if (live.current) setActionError(message(failure));
+      if (live.current) setActionError(message(failure, locale));
     } finally {
       if (live.current) setBusy(false);
     }
   }
   return (
-    <section className="schedules-page" aria-label="定时任务管理">
+    <section className="schedules-page" aria-label={t("定时任务管理")}>
       <header className="topbar">
         <div className="row">
           <button
             className="icon mobile-toggle"
-            aria-label="打开任务侧栏"
+            aria-label={t("打开任务侧栏")}
             onClick={props.onMenu}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -548,14 +574,14 @@ export default function Schedules(props: Props) {
           </button>
           <button
             className="icon"
-            aria-label="返回总控对话"
+            aria-label={t("返回总控对话")}
             onClick={props.onBack}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="m14 5-7 7 7 7" />
             </svg>
           </button>
-          <h1>定时任务</h1>
+          <h1>{t("定时任务")}</h1>
           <span className="small">{schedules.length}</span>
         </div>
         <button
@@ -566,16 +592,20 @@ export default function Schedules(props: Props) {
             setActionError("");
           }}
         >
-          新建定时任务
+          {t("新建定时任务")}
         </button>
       </header>
       <div className="schedule-context">
         <Clock />
-        <p>让已接入的 Agent 按时间执行。电脑需保持在线，ACD 后台需保持运行。</p>
+        <p>
+          {t(
+            "让已接入的 Agent 按时间执行。电脑需保持在线，ACD 后台需保持运行。",
+          )}
+        </p>
       </div>
       {!props.connected && (
         <p className="schedule-alert" role="status">
-          本地后台未连接，连接恢复后才能管理定时任务。
+          {t("本地后台未连接，连接恢复后才能管理定时任务。")}
         </p>
       )}
       {loadError && (
@@ -586,7 +616,7 @@ export default function Schedules(props: Props) {
             onClick={() => void load()}
             disabled={loading || !props.connected}
           >
-            重新加载
+            {t("重新加载")}
           </button>
         </div>
       )}
@@ -596,24 +626,26 @@ export default function Schedules(props: Props) {
         </p>
       )}
       <div className="schedule-layout">
-        <div className="schedule-list" aria-label="定时任务列表">
+        <div className="schedule-list" aria-label={t("定时任务列表")}>
           {loading && !schedules.length ? (
             <p className="schedule-empty" role="status">
-              正在加载定时任务…
+              {t("正在加载定时任务…")}
             </p>
           ) : !schedules.length && !loadError ? (
             <div className="schedule-empty">
               <Clock />
-              <h2>把重复的工作交给时间</h2>
+              <h2>{t("把重复的工作交给时间")}</h2>
               <p>
-                例如每天整理项目进展，或每周检查文档。创建后，每次触发都会生成独立任务。
+                {t(
+                  "例如每天整理项目进展，或每周检查文档。创建后，每次触发都会生成独立任务。",
+                )}
               </p>
               <button
                 className="button"
                 disabled={!props.connected}
                 onClick={() => setEditor("new")}
               >
-                创建第一个定时任务
+                {t("创建第一个定时任务")}
               </button>
             </div>
           ) : (
@@ -632,41 +664,41 @@ export default function Schedules(props: Props) {
                 <span className="row between">
                   <strong>{item.name}</strong>
                   <span className={"schedule-state " + item.status}>
-                    {states[item.status]}
+                    {t(states[item.status])}
                   </span>
                 </span>
                 <span className="schedule-rule">
-                  {scheduleRuleLabel(item.rule)}
+                  {scheduleRuleLabel(item.rule, locale)}
                 </span>
                 <span className="schedule-next">
                   <span>
                     {item.status === "paused"
-                      ? "已暂停"
+                      ? t("已暂停")
                       : item.status === "finished"
-                        ? "执行计划已结束"
-                        : "下次执行"}
+                        ? t("执行计划已结束")
+                        : t("下次执行")}
                   </span>
                   {item.status === "active" && (
                     <time dateTime={item.nextRunAt || undefined}>
-                      {dateLabel(item.nextRunAt)}
+                      {dateLabel(item.nextRunAt, locale)}
                     </time>
                   )}
                 </span>
                 {item.lastRun && (
                   <span className="schedule-last">
-                    最近触发 · {runStates[item.lastRun.status]}
+                    {t("最近触发 ·")} {t(runStates[item.lastRun.status])}
                   </span>
                 )}
               </button>
             ))
           )}
         </div>
-        <section className="schedule-inspector" aria-label="定时任务详情">
+        <section className="schedule-inspector" aria-label={t("定时任务详情")}>
           {record ? (
             <>
               <div className="schedule-detail-heading">
                 <div>
-                  <span className="small">执行计划</span>
+                  <span className="small">{t("执行计划")}</span>
                   <h2>{record.name}</h2>
                 </div>
                 <div className="schedule-detail-actions">
@@ -675,7 +707,7 @@ export default function Schedules(props: Props) {
                     disabled={busy || !props.connected}
                     onClick={() => setEditor(record)}
                   >
-                    编辑
+                    {t("编辑")}
                   </button>
                   {record.status !== "finished" && (
                     <button
@@ -688,7 +720,7 @@ export default function Schedules(props: Props) {
                         )
                       }
                     >
-                      {record.status === "active" ? "暂停" : "恢复"}
+                      {record.status === "active" ? t("暂停") : t("恢复")}
                     </button>
                   )}
                   <button
@@ -699,51 +731,53 @@ export default function Schedules(props: Props) {
                       setActionError("");
                     }}
                   >
-                    删除
+                    {t("删除")}
                   </button>
                 </div>
               </div>
               <dl className="schedule-facts">
                 <div>
-                  <dt>规则</dt>
-                  <dd>{scheduleRuleLabel(record.rule)}</dd>
+                  <dt>{t("规则")}</dt>
+                  <dd>{scheduleRuleLabel(record.rule, locale)}</dd>
                 </div>
                 <div>
-                  <dt>下次执行</dt>
+                  <dt>{t("下次执行")}</dt>
                   <dd>
                     {record.status === "active"
-                      ? dateLabel(record.nextRunAt)
-                      : states[record.status]}
+                      ? dateLabel(record.nextRunAt, locale)
+                      : t(states[record.status])}
                   </dd>
                 </div>
                 <div>
-                  <dt>执行 Agent</dt>
+                  <dt>{t("执行 Agent")}</dt>
                   <dd>
                     {props.agents.find((agent) => agent.id === record.agentId)
-                      ?.name || "原 Agent 已移除"}
+                      ?.name || t("原 Agent 已移除")}
                   </dd>
                 </div>
                 <div>
-                  <dt>工作目录</dt>
+                  <dt>{t("工作目录")}</dt>
                   <dd className="mono">{record.cwd}</dd>
                 </div>
               </dl>
               <div className="schedule-prompt">
-                <h3>每次执行的内容</h3>
+                <h3>{t("每次执行的内容")}</h3>
                 <p>{record.prompt}</p>
               </div>
               <div className="schedule-history-heading">
-                <h3>最近触发</h3>
+                <h3>{t("最近触发")}</h3>
                 <button
                   className="button ghost"
                   disabled={runsLoading || !props.connected}
                   onClick={() => void loadRuns(record.id)}
                 >
-                  {runsLoading ? "加载中…" : "刷新记录"}
+                  {runsLoading ? t("加载中…") : t("刷新记录")}
                 </button>
               </div>
               <p className="small">
-                显示最近 30 次触发。已分配表示任务已创建，实际结果请查看任务。
+                {t(
+                  "显示最近 30 次触发。已分配表示任务已创建，实际结果请查看任务。",
+                )}
               </p>
               {runsError && (
                 <p className="form-error" role="alert">
@@ -752,7 +786,7 @@ export default function Schedules(props: Props) {
               )}
               {!runs.length && !runsLoading && !runsError && (
                 <p className="schedule-history-empty">
-                  尚未触发，将在计划时间生成任务。
+                  {t("尚未触发，将在计划时间生成任务。")}
                 </p>
               )}
               <ol className="schedule-runs">
@@ -764,10 +798,10 @@ export default function Schedules(props: Props) {
                     <li key={run.id}>
                       <div className="row between">
                         <span className={"schedule-run-state " + run.status}>
-                          {runStates[run.status]}
+                          {t(runStates[run.status])}
                         </span>
                         <time dateTime={run.scheduledFor}>
-                          {dateLabel(run.scheduledFor)}
+                          {dateLabel(run.scheduledFor, locale)}
                         </time>
                       </div>
                       <p>{run.detail}</p>
@@ -777,10 +811,10 @@ export default function Schedules(props: Props) {
                           disabled={!task}
                           onClick={() => props.onOpenTask(run.taskId!)}
                         >
-                          查看任务
+                          {t("查看任务")}
                           {task
-                            ? ` · ${taskStates[task.status]}`
-                            : " · 暂不可见"}
+                            ? ` · ${t(taskStates[task.status])}`
+                            : t(" · 暂不可见")}
                         </button>
                       )}
                     </li>
@@ -788,14 +822,18 @@ export default function Schedules(props: Props) {
                 })}
               </ol>
               <p className="schedule-detail-note">
-                错过的触发不补跑；上一轮仍在执行、等待输入或状态待确认时，跳过本轮。暂停或删除计划不会停止已创建的任务。
+                {t(
+                  "错过的触发不补跑；上一轮仍在执行、等待输入或状态待确认时，跳过本轮。暂停或删除计划不会停止已创建的任务。",
+                )}
               </p>
             </>
           ) : (
             <div className="schedule-detail-empty">
               <Clock />
-              <h2>按你的节奏运行</h2>
-              <p>选择一个定时任务，查看下次执行时间、执行内容和触发记录。</p>
+              <h2>{t("按你的节奏运行")}</h2>
+              <p>
+                {t("选择一个定时任务，查看下次执行时间、执行内容和触发记录。")}
+              </p>
             </div>
           )}
         </section>
@@ -823,7 +861,7 @@ export default function Schedules(props: Props) {
       )}
       {deleting && (
         <Dialog
-          title="删除定时任务"
+          title={t("删除定时任务")}
           busy={busy}
           onClose={() => {
             setDeleting(null);
@@ -831,8 +869,10 @@ export default function Schedules(props: Props) {
           }}
         >
           <p>
-            删除“{deleting.name}
-            ”后将不再触发后续执行。已经创建的任务会继续保留和执行。
+            {t(
+              "删除“{name}”后将不再触发后续执行。已经创建的任务会继续保留和执行。",
+              { name: deleting.name },
+            )}
           </p>
           {actionError && (
             <p className="form-error" role="alert">
@@ -845,14 +885,14 @@ export default function Schedules(props: Props) {
               disabled={busy}
               onClick={() => setDeleting(null)}
             >
-              取消
+              {t("取消")}
             </button>
             <button
               className="button danger"
               disabled={busy || !props.connected}
               onClick={() => void control(deleting, "delete")}
             >
-              {busy ? "删除中…" : "删除计划"}
+              {busy ? t("删除中…") : t("删除计划")}
             </button>
           </div>
         </Dialog>

@@ -1,3 +1,12 @@
+import { englishMessages, normalizeLocale, translate } from "../i18n/index.cjs";
+import { PersonalMemories } from "./personal-memory.js";
+import {
+  memoryHints,
+  preferenceRequest,
+  withExecutionMemory,
+  workRequest,
+} from "./memory-preferences.js";
+import { explicitAnswer, isTextFollowup } from "./task-followups.js";
 import { Schedules } from "./schedules.js";
 import { queueCompletion, type CompletionInput } from "./completion.js";
 import { projectNotices, noticeFeed } from "./notifications.js";
@@ -23,6 +32,8 @@ import type {
   SkillTranslation,
   AllocationRequest,
   AllocationSettings,
+  AppPreferences,
+  Locale,
 } from "../contracts/index.js";
 import { Store } from "./store.js";
 import { agentFromPath } from "./agents.js";
@@ -31,6 +42,7 @@ import {
   effectiveCapabilities,
   exclusionReason,
   normalizeAllocation,
+  rankedSettings,
 } from "./allocation.js";
 import {
   resolveModelSettings,
@@ -39,7 +51,7 @@ import {
   type ModelConnectionInput,
 } from "../contracts/providers.js";
 import { fetchModelCatalog } from "./model-catalog.js";
-import type { NativeActivityContext } from "./native-context.js";
+import { publicSnippet, type NativeActivityContext } from "./native-context.js";
 import {
   route,
   clarifyTaskCollision,
@@ -52,7 +64,10 @@ export interface Dependencies {
   now?: () => number;
   scan: () => Promise<AgentConnection[]>;
   verify?: (agent: AgentConnection) => Promise<AgentConnection>;
-  adapter: (kind: AgentConnection["kind"]) => AgentAdapter;
+  adapter: (
+    kind: AgentConnection["kind"],
+    locale?: () => Locale,
+  ) => AgentAdapter;
   vault: SecretVault;
   route?: typeof route;
   report?: typeof summarizeCompletion;
@@ -70,6 +85,7 @@ const overlaps = (a: string, b: string) => {
 };
 export class Runtime extends EventEmitter {
   readonly schedules: Schedules;
+  readonly memories: PersonalMemories;
   private observations: AgentObservation[] = [];
   private nativeDirectories = new Map<
     string,
@@ -91,6 +107,7 @@ export class Runtime extends EventEmitter {
   private selectionGeneration = 0;
   private answering = new Set<string>();
   private routing = new Map<string, AbortController>();
+  private runOwners = new Map<string, symbol>();
   private deferredUpdates = new Map<string, string[]>();
   constructor(
     readonly store: Store,
@@ -98,6 +115,7 @@ export class Runtime extends EventEmitter {
     readonly environment: "live" | "test" = "test",
   ) {
     super();
+    this.memories = new PersonalMemories(store);
     for (const entry of store.list<{ id?: string; ignored?: boolean }>(
       "native-executions",
     ))
@@ -105,19 +123,28 @@ export class Runtime extends EventEmitter {
     for (const t of store.list<Task>("tasks"))
       if (t.status === "queued") {
         t.status = "blocked";
-        t.progress = "服务已重启，任务尚未启动。可补充消息后继续。";
+        t.progress = this.tr("服务已重启，任务尚未启动。可补充消息后继续。");
         store.put("tasks", t.id, t);
       }
+    const resumableQuestions = new Set(
+      store
+        .list<Question>("questions")
+        .filter((q) => q.followup && !q.resolved)
+        .map((q) => q.taskId),
+    );
     for (const t of store.list<Task>("tasks"))
-      if (["running", "stopping", "waiting_input"].includes(t.status)) {
+      if (
+        ["running", "stopping", "waiting_input"].includes(t.status) &&
+        !(t.status === "waiting_input" && resumableQuestions.has(t.id))
+      ) {
         t.status = "unknown";
-        t.progress = "服务已重启，需要核对原会话；未自动重跑。";
+        t.progress = this.tr("服务已重启，需要核对原会话；未自动重跑。");
         store.put("tasks", t.id, t);
       }
     for (const t of store.list<Task>("tasks"))
       if (t.status === "unknown") this.reserved.add(t.id);
     for (const q of store.list<Question>("questions"))
-      if (q.taskId && !q.resolved)
+      if (q.taskId && !q.resolved && !q.followup)
         store.put("questions", q.id, { ...q, resolved: true });
     for (const message of store.pendingRoutingMessages()) {
       store.message({
@@ -135,6 +162,54 @@ export class Runtime extends EventEmitter {
     this.schedules = new Schedules(this, deps.now);
     projectNotices(store, this.stateSnapshot());
   }
+  preferences(): AppPreferences {
+    return {
+      locale: normalizeLocale(
+        this.store.get<AppPreferences>("settings", "preferences")?.locale,
+      ),
+    };
+  }
+  configurePreferences(input: AppPreferences): AppPreferences {
+    if (
+      !input ||
+      !["zh-CN", "en"].includes(input.locale) ||
+      Object.keys(input).some((key) => key !== "locale")
+    )
+      throw Error(this.tr("请求参数无效"));
+    if (this.closed) throw Error(this.tr("服务正在退出"));
+    const preferences = { locale: input.locale };
+    this.store.put("settings", "preferences", preferences);
+    this.nativeTitles.clear();
+    this.publish();
+    return preferences;
+  }
+  tr(source: string, values?: Record<string, string | number>): string {
+    return translate(this.preferences().locale, source, values);
+  }
+  userError(error: unknown): string {
+    if (!(error instanceof Error)) return this.tr("操作失败");
+    for (const [source, english] of Object.entries(englishMessages)) {
+      for (const template of [source, english]) {
+        const parts = template.split(/\{(\w+)\}/g);
+        const pattern = parts
+          .map((part, index) =>
+            index % 2
+              ? "([\\s\\S]*?)"
+              : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          )
+          .join("");
+        const match = new RegExp("^" + pattern + "$").exec(error.message);
+        if (!match) continue;
+        const values = Object.fromEntries(
+          parts
+            .filter((_, index) => index % 2)
+            .map((key, index) => [key, match[index + 1]]),
+        );
+        return this.tr(source, values);
+      }
+    }
+    return this.tr("操作失败");
+  }
   snapshot(): Snapshot {
     const snapshot = this.stateSnapshot();
     snapshot.notifications = noticeFeed(this.store, snapshot);
@@ -143,10 +218,14 @@ export class Runtime extends EventEmitter {
   private stateSnapshot(): Snapshot {
     const snapshot: Snapshot = {
       environment: this.environment,
+      preferences: this.preferences(),
       schedules: this.schedules?.list() || [],
       agents: this.store.list<AgentConnection>("agents").map((agent) => ({
         ...agent,
         capabilities: effectiveCapabilities(agent),
+        ...(agent.verificationMessage
+          ? { verificationMessage: this.tr(agent.verificationMessage) }
+          : {}),
       })),
       allocationSettings: this.allocationSettings(),
       tasks: this.store.list("tasks"),
@@ -179,6 +258,7 @@ export class Runtime extends EventEmitter {
         )
         .map((item) => ({
           ...item,
+          message: this.tr(item.message),
           sessions: item.sessions
             .filter((session) => {
               if (
@@ -189,7 +269,11 @@ export class Runtime extends EventEmitter {
               observed.add(session.sessionId);
               return true;
             })
-            .map((session) => {
+            .map((original) => {
+              const session = {
+                ...original,
+                progress: this.tr(original.progress),
+              };
               const title = this.nativeTitles.get(session.id);
               return title &&
                 title.turnId === session.turnId &&
@@ -262,7 +346,8 @@ export class Runtime extends EventEmitter {
             this.store.get<AgentConnection>("agents", session.agentId)?.name ||
             "Agent";
           const title =
-            this.nativeTitles.get(session.id)?.title || name + " 本轮任务";
+            this.nativeTitles.get(session.id)?.title ||
+            name + this.tr(" 本轮任务");
           queueCompletion(this.store, {
             executionKey: `native:${session.id}:${session.turnId || previous!.runId}`,
             cwd: session.cwd,
@@ -415,6 +500,7 @@ export class Runtime extends EventEmitter {
       id?: string;
       request?: NonNullable<Message["request"]>;
       replyTo?: string;
+      displayText?: string;
     },
     attention = false,
   ) {
@@ -431,6 +517,7 @@ export class Runtime extends EventEmitter {
       ...(receipt?.request
         ? { request: receipt.request, delivery: "received" as const }
         : {}),
+      ...(receipt?.displayText ? { displayText: receipt.displayText } : {}),
       ...(receipt?.replyTo ? { replyTo: receipt.replyTo } : {}),
     };
     this.store.message(m);
@@ -498,7 +585,7 @@ export class Runtime extends EventEmitter {
           ),
       )
     )
-      throw Error("所选 Agent 不存在、不可启动或尚未完成适配");
+      throw Error(this.tr("所选 Agent 不存在、不可启动或尚未完成适配"));
     for (const a of all)
       this.store.put("agents", a.id, {
         ...a,
@@ -506,7 +593,7 @@ export class Runtime extends EventEmitter {
         ...(ids.includes(a.id)
           ? {
               verification: "checking",
-              verificationMessage: "正在检查所选程序…",
+              verificationMessage: this.tr("正在检查所选程序…"),
             }
           : {}),
       });
@@ -521,7 +608,7 @@ export class Runtime extends EventEmitter {
           ...a,
           available: false,
           verification: "failed",
-          verificationMessage: "启动检查失败，请确认安装。",
+          verificationMessage: this.tr("启动检查失败，请确认安装。"),
         };
       }
       if (this.closed || generation !== this.selectionGeneration) return;
@@ -556,8 +643,8 @@ export class Runtime extends EventEmitter {
       requiresModelKey(settings) &&
       !input.apiKey
     )
-      throw Error("切换模型服务地址时，请明确填写用于该服务的 Key");
-    if (!input.model.trim()) throw Error("请填写模型名");
+      throw Error(this.tr("切换模型服务地址时，请明确填写用于该服务的 Key"));
+    if (!input.model.trim()) throw Error(this.tr("请填写模型名"));
     if (input.apiKey) await this.deps.vault.set(input.apiKey, baseUrl);
     const keyRelevant = Boolean(
       input.apiKey ||
@@ -569,7 +656,7 @@ export class Runtime extends EventEmitter {
       ? Boolean(await this.deps.vault.get(baseUrl))
       : false;
     if (!hasKey && requiresModelKey(settings))
-      throw Error("请配置总控 API Key");
+      throw Error(this.tr("请配置总控 API Key"));
     const config: ModelConfig = { ...settings, hasKey };
     this.store.put("settings", "model", config);
     this.publish();
@@ -579,7 +666,7 @@ export class Runtime extends EventEmitter {
     context: NativeActivityContext,
   ): Promise<NativeInsight> {
     const config = this.snapshot().model;
-    if (!config) throw Error("请先配置总控模型，再分析当前任务。");
+    if (!config) throw Error(this.tr("请先配置总控模型，再分析当前任务。"));
     const key = config.hasKey
       ? await this.deps.vault.get(config.baseUrl)
       : null;
@@ -590,18 +677,28 @@ export class Runtime extends EventEmitter {
         baseUrl: config.baseUrl,
       })
     )
-      throw Error("总控模型凭证不可用，请重新配置。");
+      throw Error(this.tr("总控模型凭证不可用，请重新配置。"));
     try {
-      return await analyzeNativeSession(config, key || "", session, context);
+      return await analyzeNativeSession(
+        config,
+        key || "",
+        session,
+        context,
+        this.preferences().locale,
+      );
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError")
-        throw Error("任务分析超时，可稍后重新分析。");
+        throw Error(this.tr("任务分析超时，可稍后重新分析。"));
       throw error;
     }
   }
-  async summarizeCompletion(input: CompletionInput, signal?: AbortSignal) {
+  async summarizeCompletion(
+    input: CompletionInput,
+    signal?: AbortSignal,
+    locale = this.preferences().locale,
+  ) {
     const config = this.snapshot().model;
-    if (!config) throw Error("配置总控模型后才能生成结果建议。");
+    if (!config) throw Error(this.tr("配置总控模型后才能生成结果建议。"));
     const key = config.hasKey
       ? await this.deps.vault.get(config.baseUrl)
       : null;
@@ -612,17 +709,18 @@ export class Runtime extends EventEmitter {
         baseUrl: config.baseUrl,
       })
     )
-      throw Error("总控模型凭证不可用，请重新配置。");
+      throw Error(this.tr("总控模型凭证不可用，请重新配置。"));
     return (this.deps.report || summarizeCompletion)(
       config,
       key || "",
       input,
       signal,
+      locale,
     );
   }
   async translateSkill(detail: SkillDetail): Promise<SkillTranslation> {
     const config = this.snapshot().model;
-    if (!config) throw Error("请先在设置中配置总控模型，再翻译技能。");
+    if (!config) throw Error(this.tr("请先在设置中配置总控模型，再翻译技能。"));
     const key = config.hasKey
       ? await this.deps.vault.get(config.baseUrl)
       : null;
@@ -633,12 +731,17 @@ export class Runtime extends EventEmitter {
         baseUrl: config.baseUrl,
       })
     )
-      throw Error("总控模型凭证不可用，请在设置中重新配置。");
+      throw Error(this.tr("总控模型凭证不可用，请在设置中重新配置。"));
     try {
-      return await translateSkill(config, key || "", detail);
+      return await translateSkill(
+        config,
+        key || "",
+        detail,
+        this.preferences().locale,
+      );
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError")
-        throw Error("翻译请求超时，请稍后重试。");
+        throw Error(this.tr("翻译请求超时，请稍后重试。"));
       throw error;
     }
   }
@@ -652,42 +755,55 @@ export class Runtime extends EventEmitter {
       input.apiKey?.trim() ||
       (sameSavedOrigin ? await this.deps.vault.get(connection.baseUrl) : null);
     if (!key && requiresModelKey(connection))
-      throw Error("请先填写此服务的 API Key，再获取模型列表");
+      throw Error(this.tr("请先填写此服务的 API Key，再获取模型列表"));
     return fetchModelCatalog(connection, key);
   }
-  allocationSettings(): AllocationSettings {
-    return (
-      this.store.get<AllocationSettings>("settings", "allocation") || {
-        globalAgentId: null,
-        projectAgentIds: {},
-      }
+  allocationSettings() {
+    return rankedSettings(
+      this.store.get<AllocationSettings>("settings", "allocation"),
     );
   }
-  configureAllocation(input: { agentId: string | null; projectPath?: string }) {
-    if (this.closed) throw Error("服务正在退出");
-    if (input.agentId !== null) {
-      const agent = this.snapshot().agents.find(
-        (item) => item.id === input.agentId,
-      );
-      if (!agent || exclusionReason(agent, []))
-        throw Error("默认 Agent 必须已接入、可用且已适配");
-    }
-    const settings = this.allocationSettings();
-    if (input.projectPath !== undefined) {
-      if (!isAbsolute(input.projectPath)) throw Error("请选择项目的绝对路径");
-      // A saved preference can be removed even after its project was deleted.
-      if (
-        input.agentId === null &&
-        Object.hasOwn(settings.projectAgentIds, input.projectPath)
-      ) {
-        delete settings.projectAgentIds[input.projectPath];
-      } else {
-        const cwd = realpathSync(input.projectPath);
-        if (!statSync(cwd).isDirectory()) throw Error("项目目录不存在");
-        if (input.agentId === null) delete settings.projectAgentIds[cwd];
-        else settings.projectAgentIds[cwd] = input.agentId;
+  configureAllocation(
+    input: ({ agentIds: string[] } | { agentId: string | null }) & {
+      projectPath?: string;
+    },
+  ) {
+    if (this.closed) throw Error(this.tr("服务正在退出"));
+    const ids =
+      "agentIds" in input
+        ? input.agentIds
+        : input.agentId
+          ? [input.agentId]
+          : [];
+    if (new Set(ids).size !== ids.length)
+      throw Error(this.tr("优先级列表中的 Agent 不能重复"));
+    const current = this.allocationSettings();
+    let cwd = input.projectPath;
+    if (cwd !== undefined) {
+      if (!isAbsolute(cwd)) throw Error(this.tr("请选择项目的绝对路径"));
+      // Clearing an already removed project must still work.
+      if (ids.length || !Object.hasOwn(current.projectAgentOrders, cwd)) {
+        cwd = realpathSync(cwd);
+        if (!statSync(cwd).isDirectory())
+          throw Error(this.tr("项目目录不存在"));
       }
-    } else settings.globalAgentId = input.agentId;
+    }
+    const saved = cwd
+      ? current.projectAgentOrders[cwd] || []
+      : current.globalAgentOrder;
+    const agents = this.store.list<AgentConnection>("agents");
+    for (const id of ids) {
+      if ("agentIds" in input && saved.includes(id)) continue;
+      const agent = agents.find((item) => item.id === id);
+      if (!agent || exclusionReason(agent, []))
+        throw Error(
+          this.tr("新加入优先级列表的 Agent 必须已接入、可用且已适配"),
+        );
+    }
+    if (cwd === undefined) current.globalAgentOrder = ids;
+    else if (ids.length) current.projectAgentOrders[cwd] = ids;
+    else delete current.projectAgentOrders[cwd];
+    const settings = rankedSettings(current);
     this.store.put("settings", "allocation", settings);
     this.publish();
     return settings;
@@ -699,13 +815,15 @@ export class Runtime extends EventEmitter {
     clientMessageId?: string,
     replyTo?: string,
     options?: AllocationRequest,
+    displayText?: string,
   ) {
     const allocation = normalizeAllocation(options);
-    if (this.closed) throw Error("服务正在退出");
+    if (this.closed) throw Error(this.tr("服务正在退出"));
     const canonical = realpathSync(cwd);
-    if (!statSync(canonical).isDirectory()) throw Error("工作目录不存在");
+    if (!statSync(canonical).isDirectory())
+      throw Error(this.tr("工作目录不存在"));
     if (targetTaskId && !this.store.get<Task>("tasks", targetTaskId))
-      throw Error("任务不存在");
+      throw Error(this.tr("任务不存在"));
     if (clientMessageId) {
       const previous = this.store.getMessage(clientMessageId);
       if (previous) {
@@ -718,12 +836,13 @@ export class Runtime extends EventEmitter {
             JSON.stringify(allocation) ||
           previous.replyTo !== replyTo
         )
-          throw Error("此消息编号已用于其他内容，请重新发送新消息");
+          throw Error(this.tr("此消息编号已用于其他内容，请重新发送新消息"));
         return previous;
       }
     }
     const m = this.say(text, "user", targetTaskId ? [targetTaskId] : [], {
       id: clientMessageId,
+      displayText,
       request: {
         cwd: canonical,
         ...(targetTaskId ? { targetTaskId } : {}),
@@ -735,9 +854,10 @@ export class Runtime extends EventEmitter {
     return m;
   }
   retryRouting(id: string) {
-    if (this.closed) throw Error("服务正在退出");
+    if (this.closed) throw Error(this.tr("服务正在退出"));
     const message = this.store.getMessage(id);
-    if (!message || message.role !== "user") throw Error("用户消息不存在");
+    if (!message || message.role !== "user")
+      throw Error(this.tr("用户消息不存在"));
     if (
       (message.routing?.status === "pending" && this.routing.has(id)) ||
       (message.routing?.status === "completed" &&
@@ -750,7 +870,9 @@ export class Runtime extends EventEmitter {
       !message.request
     )
       throw Error(
-        "这条消息不能安全重新判断，请先核对已有任务或作为新消息说明要求。",
+        this.tr(
+          "这条消息不能安全重新判断，请先核对已有任务或作为新消息说明要求。",
+        ),
       );
     const { cwd, targetTaskId } = message.request;
     let directoryMatches = false;
@@ -759,9 +881,11 @@ export class Runtime extends EventEmitter {
         realpathSync(cwd) === cwd && statSync(cwd).isDirectory();
     } catch {}
     if (!directoryMatches)
-      throw Error("原工作目录已改变或不可访问，请重新选择目录后发送新消息。");
+      throw Error(
+        this.tr("原工作目录已改变或不可访问，请重新选择目录后发送新消息。"),
+      );
     if (targetTaskId && !this.store.get<Task>("tasks", targetTaskId))
-      throw Error("原目标任务已不存在，请重新选择目标。");
+      throw Error(this.tr("原目标任务已不存在，请重新选择目标。"));
     const pending = {
       ...message,
       routing: {
@@ -790,8 +914,10 @@ export class Runtime extends EventEmitter {
           if (beforeActions) this.updateRouting(m, "failed", [], true);
           this.say(
             beforeActions
-              ? "总控处理失败，消息已保存。可在原消息上重新判断。"
-              : "部分操作可能已提交，请核对任务状态；没有自动重试操作。",
+              ? this.tr("总控处理失败，消息已保存。可在原消息上重新判断。")
+              : this.tr(
+                  "部分操作可能已提交，请核对任务状态；没有自动重试操作。",
+                ),
             "assistant",
             [],
             { replyTo: m.id },
@@ -815,11 +941,33 @@ export class Runtime extends EventEmitter {
       taskIds: string[] = [],
       attention = false,
     ) => this.say(text, role, taskIds, { replyTo: m.id }, attention);
+    const preference = !m.replyTo ? preferenceRequest(m.text) : undefined;
+    if (preference) {
+      const saved = preference.inputs.map((input, index) =>
+        this.memories.rememberPreference(input, m.id + ":" + index),
+      );
+      if (!preference.remaining) {
+        this.updateRouting(m, "completed", []);
+        const count = saved.filter(Boolean).length;
+        reply(
+          count
+            ? this.tr(
+                "已记住 {count} 条偏好，可以在设置的「个人记忆」中查看或修改。",
+                { count },
+              )
+            : this.tr(
+                "没有新增记忆。你可以到设置的「个人记忆」中查看或手动维护。",
+              ),
+        );
+        return;
+      }
+    }
+    const taskText = preference?.remaining || m.text;
     const snapshot = this.snapshot();
     if (!snapshot.model) {
       this.updateRouting(m, "failed", [], true);
       reply(
-        "请先配置独立总控模型。消息已保存，尚未执行。",
+        this.tr("请先配置独立总控模型。消息已保存，尚未执行。"),
         "assistant",
         [],
         true,
@@ -838,7 +986,7 @@ export class Runtime extends EventEmitter {
       })
     ) {
       this.updateRouting(m, "failed", [], true);
-      reply("总控凭证不可用，请重新配置。", "assistant", [], true);
+      reply(this.tr("总控凭证不可用，请重新配置。"), "assistant", [], true);
       return;
     }
     let decision: RouteDecision;
@@ -847,19 +995,29 @@ export class Runtime extends EventEmitter {
         snapshot.model,
         key || "",
         snapshot,
-        m.text,
+        taskText,
         cwd,
         targetTaskId,
         signal,
         normalizeAllocation(m.request),
+        memoryHints(
+          this.memories.select(
+            taskText +
+              (targetTaskId ? " " + this.task(targetTaskId).title : ""),
+          ),
+        ),
       );
     } catch (error) {
       if (this.closed) return;
       this.updateRouting(m, "failed", [], true);
       reply(
         error instanceof Error && error.name === "TimeoutError"
-          ? "总控模型请求超时。消息已保存，尚未分配执行；请检查模型响应或重试。"
-          : "总控模型暂不可用或返回格式不正确。消息已保存，未分配执行。",
+          ? this.tr(
+              "总控模型请求超时。消息已保存，尚未分配执行；请检查模型响应或重试。",
+            )
+          : this.tr(
+              "总控模型暂不可用或返回格式不正确。消息已保存，未分配执行。",
+            ),
         "assistant",
         [],
         true,
@@ -876,14 +1034,16 @@ export class Runtime extends EventEmitter {
         let a = proposed;
         if (a.type === "create") {
           if (realpathSync(a.cwd) !== cwd)
-            throw Error("新任务试图超出本条消息的工作目录");
+            throw Error(this.tr("新任务试图超出本条消息的工作目录"));
           // Routing can overlap. Check the live tasks in the same synchronous
           // turn that persists a successful create, including earlier actions.
           const collision = clarifyTaskCollision(
             this.store.list<Task>("tasks"),
             cwd,
             a.title,
-            m.text,
+            taskText,
+            m.request?.targetAgentId || a.requestedAgentId,
+            this.preferences().locale,
           );
           if (collision) {
             a = collision;
@@ -893,6 +1053,7 @@ export class Runtime extends EventEmitter {
         }
         if (a.type === "create") {
           const { agent, allocation } = allocateAgent({
+            locale: this.preferences().locale,
             agents: this.snapshot().agents,
             cwd,
             settings: this.allocationSettings(),
@@ -906,6 +1067,7 @@ export class Runtime extends EventEmitter {
           const t = this.prepareTask(
             {
               title: a.title,
+              ...(a.responseKind ? { responseKind: a.responseKind } : {}),
               goal: a.goal,
               cwd,
               agentId: agent.id,
@@ -914,20 +1076,37 @@ export class Runtime extends EventEmitter {
             m.id,
           );
           this.dispatchPreparedTask(t);
-          reply("已创建任务：" + t.title, "assistant", [t.id]);
+          const current = this.task(t.id);
+          const receipt =
+            current.status === "queued"
+              ? this.tr("已为 {v0} 排队，轮到它时会发送", { v0: agent.name })
+              : current.status === "blocked" || current.status === "failed"
+                ? this.tr("{v0} 暂时无法执行，{v1} 原指令是", {
+                    v0: agent.name,
+                    v1: current.progress,
+                  })
+                : t.responseKind === "answer"
+                  ? this.tr("收到，我去问 {v0}", { v0: agent.name })
+                  : this.tr("收到，我让 {v0} 处理", { v0: agent.name });
+          reply(`${receipt}「${t.goal}」`, "assistant", [t.id]);
         } else if (a.type === "schedule_create") {
           if (
             m.request?.targetAgentId ||
             m.request?.requiredCapabilities?.length
           )
             throw Error(
-              "本次执行者和能力选择用于立即创建的任务。定时计划请在“定时任务”页面选择执行者，或清除本次选择后重发；消息已保留。",
+              this.tr(
+                "本次执行者和能力选择用于立即创建的任务。定时计划请在“定时任务”页面选择执行者，或清除本次选择后重发；消息已保留。",
+              ),
             );
           if (realpathSync(a.input.cwd) !== cwd)
-            throw Error("定时任务试图超出本条消息的工作目录");
+            throw Error(this.tr("定时任务试图超出本条消息的工作目录"));
           const schedule = this.schedules.create(a.input);
           reply(
-            `已创建定时任务「${schedule.name}」。下次执行：${schedule.nextRunAt}。后台需保持运行，错过时间不补跑。`,
+            this.tr(
+              "已创建定时任务「{v0}」。下次执行：{v1}。后台需保持运行，错过时间不补跑。",
+              { v0: schedule.name, v1: schedule.nextRunAt || this.tr("无") },
+            ),
           );
         } else if (a.type === "schedule_control") {
           this.schedules.control(
@@ -937,10 +1116,10 @@ export class Runtime extends EventEmitter {
           );
           reply(
             a.operation === "delete"
-              ? "已删除定时计划，已触发的任务继续保留。"
+              ? this.tr("已删除定时计划，已触发的任务继续保留。")
               : a.operation === "pause"
-                ? "已暂停后续触发，已有执行不受影响。"
-                : "已恢复后续定时触发。",
+                ? this.tr("已暂停后续触发，已有执行不受影响。")
+                : this.tr("已恢复后续定时触发。"),
           );
         } else if (a.type === "schedule_status") {
           for (const id of a.scheduleIds) this.schedules.get(id);
@@ -953,20 +1132,31 @@ export class Runtime extends EventEmitter {
           reply(
             schedules.length
               ? schedules
-                  .map(
-                    (schedule) =>
-                      `${schedule.name}（${schedule.id}）：${{ active: "已启用", paused: "已暂停", finished: "已结束" }[schedule.status]}，下次执行 ${schedule.nextRunAt || "无"}`,
+                  .map((schedule) =>
+                    this.tr("{v0}（{v1}）：{v2}，下次执行 {v3}", {
+                      v0: schedule.name,
+                      v1: schedule.id,
+                      v2: this.tr(
+                        {
+                          active: "已启用",
+                          paused: "已暂停",
+                          finished: "已结束",
+                        }[schedule.status],
+                      ),
+                      v3: schedule.nextRunAt || this.tr("无"),
+                    }),
                   )
                   .join("\n")
-              : "当前没有定时任务。",
+              : this.tr("当前没有定时任务。"),
           );
         } else if (a.type === "supplement") {
           const t = this.task(a.taskId);
           if (t.revision !== a.expectedRevision)
-            throw Error("任务已被更新，请依据最新进展重新确认");
+            throw Error(this.tr("任务已被更新，请依据最新进展重新确认"));
           if (t.status === "unknown")
-            throw Error("执行状态待确认，不能直接重跑或追加");
-          if (t.status === "stopping") throw Error("正在停止，暂不能追加");
+            throw Error(this.tr("执行状态待确认，不能直接重跑或追加"));
+          if (t.status === "stopping")
+            throw Error(this.tr("正在停止，暂不能追加"));
           const hadPending = this.snapshot().questions.some(
             (q) => q.taskId === t.id && !q.resolved,
           );
@@ -975,13 +1165,16 @@ export class Runtime extends EventEmitter {
             (q) => q.taskId === t.id && !q.resolved,
           ))
             this.store.put("questions", q.id, { ...q, resolved: true });
-          t.goal += "\n补充：" + a.text;
+          t.responseKind = "work";
+          t.goal += this.tr("\n补充：") + a.text;
           this.save(t);
           const handle = this.handles.get(t.id),
             agent = this.snapshot().agents.find((x) => x.id === t.agentId);
-          if (hadPending) {
+          if (hadPending && this.reserved.has(t.id)) {
             t.status = "stopping";
-            t.progress = "新要求已保存，正在停止旧轮次以取消过期授权。";
+            t.progress = this.tr(
+              "新要求已保存，正在停止旧轮次以取消过期授权。",
+            );
             this.save(t);
             if (handle)
               try {
@@ -994,50 +1187,64 @@ export class Runtime extends EventEmitter {
                     latest.revision === t.revision
                   ) {
                     latest.status = "unknown";
-                    latest.progress = "旧轮次停止结果待确认。";
+                    latest.progress = this.tr("旧轮次停止结果待确认。");
                     this.save(latest);
                   }
                 }
               }
             if (!this.closed)
-              reply("待旧轮次停止确认后，可按新要求继续。", "assistant", [
-                t.id,
-              ]);
+              reply(
+                this.tr("待旧轮次停止确认后，可按新要求继续。"),
+                "assistant",
+                [t.id],
+              );
           } else if (!handle && this.reserved.has(t.id)) {
             const updates = this.deferredUpdates.get(t.id) || [];
             updates.push(a.text);
             this.deferredUpdates.set(t.id, updates);
-            reply("补充已保存，连接建立后再确认送达。", "assistant", [t.id]);
+            reply(this.tr("补充已保存，连接建立后再确认送达。"), "assistant", [
+              t.id,
+            ]);
           } else if (handle && agent?.capabilities.steer) {
             try {
               await handle.steer(a.text);
               if (this.closed) return;
-              reply("补充已送达执行端；采用结果以执行反馈为准。", "assistant", [
-                t.id,
-              ]);
+              reply(
+                this.tr("补充已送达执行端；采用结果以执行反馈为准。"),
+                "assistant",
+                [t.id],
+              );
             } catch {
               if (this.closed) return;
-              reply("补充已保存，未确认送达，请核对执行进展。", "assistant", [
-                t.id,
-              ]);
+              reply(
+                this.tr("补充已保存，未确认送达，请核对执行进展。"),
+                "assistant",
+                [t.id],
+              );
             }
           } else if (handle) {
             reply(
-              "补充已保存。此执行端不支持中途追加；停止当前轮次后可继续。",
+              this.tr(
+                "补充已保存。此执行端不支持中途追加；停止当前轮次后可继续。",
+              ),
               "assistant",
               [t.id],
             );
           } else {
+            if (t.sessionId && agent?.kind === "codex")
+              t.pendingTurnText = t.pendingTurnText
+                ? t.pendingTurnText + "\n" + a.text
+                : a.text;
             t.status = "queued";
             t.result = undefined;
-            t.progress = "正在按更新后的要求继续。";
+            t.progress = this.tr("正在按更新后的要求继续。");
             this.save(t);
             void this.start(t);
           }
         } else if (a.type === "stop") {
           const t = this.task(a.taskId);
           if (t.revision !== a.expectedRevision)
-            throw Error("任务要求已更新，停止指令未应用");
+            throw Error(this.tr("任务要求已更新，停止指令未应用"));
           await this.stop(t.id);
         } else if (a.type === "status") {
           const snapshot = this.snapshot();
@@ -1051,7 +1258,7 @@ export class Runtime extends EventEmitter {
                 !native.some((session) => session.id === id),
             )
           )
-            throw Error("查询目标不存在或已离开当前观测范围");
+            throw Error(this.tr("查询目标不存在或已离开当前观测范围"));
           const tasks = snapshot.tasks.filter(
             (task) => !requested.size || requested.has(task.id),
           );
@@ -1061,16 +1268,16 @@ export class Runtime extends EventEmitter {
           const sections: string[] = [];
           if (tasks.length)
             sections.push(
-              "ACD 发起的任务：\n" +
+              this.tr("ACD 发起的任务：\n") +
                 tasks
                   .map((task) => task.title + "：" + task.progress)
                   .join("\n"),
             );
           if (!tasks.length && !sessions.length)
-            sections.push("ACD 当前暂无任务。");
+            sections.push(this.tr("ACD 当前暂无任务。"));
           if (sessions.length)
             sections.push(
-              "原生会话（只读）：\n" +
+              this.tr("原生会话（只读）：\n") +
                 sessions
                   .map((session) => session.title + "：" + session.progress)
                   .join("\n"),
@@ -1087,11 +1294,13 @@ export class Runtime extends EventEmitter {
                   "：" +
                   (observation.source === "run-events"
                     ? observation.message
-                    : "当前连接的原生实例没有已加载会话；不代表其他实例没有任务。"),
+                    : this.tr(
+                        "当前连接的原生实例没有已加载会话；不代表其他实例没有任务。",
+                      )),
               );
           }
           if (!snapshot.observations?.length)
-            sections.push("原生 Agent 的其他会话尚未接入观测。");
+            sections.push(this.tr("原生 Agent 的其他会话尚未接入观测。"));
           reply(sections.join("\n\n"));
         } else {
           const q: Question = {
@@ -1111,12 +1320,7 @@ export class Runtime extends EventEmitter {
         }
       } catch (e) {
         actionFailed = true;
-        reply(
-          e instanceof Error ? e.message : "操作无法执行",
-          "assistant",
-          [],
-          true,
-        );
+        reply(this.userError(e), "assistant", [], true);
       }
     }
     if (
@@ -1129,7 +1333,7 @@ export class Runtime extends EventEmitter {
   }
   reportScheduleFailure(name: string, detail: string) {
     this.say(
-      `定时任务「${name}」未启动：${detail}`,
+      this.tr("定时任务「{v0}」未启动：{v1}", { v0: name, v1: detail }),
       "system",
       [],
       undefined,
@@ -1138,13 +1342,13 @@ export class Runtime extends EventEmitter {
   }
   prepareTask(
     input: Pick<Task, "title" | "goal" | "agentId" | "cwd"> &
-      Pick<Task, "allocation">,
+      Pick<Task, "allocation" | "responseKind">,
     sourceMessageId?: string,
   ): Task {
-    if (this.closed) throw Error("服务正在退出");
-    if (!isAbsolute(input.cwd)) throw Error("工作目录必须为绝对路径");
+    if (this.closed) throw Error(this.tr("服务正在退出"));
+    if (!isAbsolute(input.cwd)) throw Error(this.tr("工作目录必须为绝对路径"));
     const cwd = realpathSync(input.cwd);
-    if (!statSync(cwd).isDirectory()) throw Error("工作目录不存在");
+    if (!statSync(cwd).isDirectory()) throw Error(this.tr("工作目录不存在"));
     const agent = this.store
       .list<AgentConnection>("agents")
       .find(
@@ -1154,7 +1358,7 @@ export class Runtime extends EventEmitter {
           agent.available &&
           agent.supported !== false,
       );
-    if (!agent) throw Error("执行 Agent 未接入");
+    if (!agent) throw Error(this.tr("执行 Agent 未接入"));
     const now = new Date().toISOString();
     return {
       ...input,
@@ -1163,7 +1367,7 @@ export class Runtime extends EventEmitter {
       ...(sourceMessageId ? { sourceMessageId } : {}),
       status: "queued",
       revision: 1,
-      progress: "消息已接收，正在分配执行。",
+      progress: this.tr("消息已接收，正在分配执行。"),
       createdAt: now,
       updatedAt: now,
     };
@@ -1176,20 +1380,27 @@ export class Runtime extends EventEmitter {
   }
   private task(id: string) {
     const t = this.store.get<Task>("tasks", id);
-    if (!t) throw Error("任务不存在");
+    if (!t) throw Error(this.tr("任务不存在"));
     return t;
   }
-  private async start(input: Task) {
+  private async start(input: Task, fromQueue = false) {
     const t = this.task(input.id);
     if (this.closed || t.status !== "queued" || this.reserved.has(t.id)) return;
     try {
       if (realpathSync(t.cwd) !== t.cwd || !statSync(t.cwd).isDirectory())
-        throw Error("工作目录已改变");
+        throw Error(this.tr("工作目录已改变"));
     } catch {
       t.status = "blocked";
-      t.progress =
-        "工作目录已不可访问或真实位置已改变，尚未提交执行；请核对原目录后继续。";
+      t.progress = this.tr(
+        "工作目录已不可访问或真实位置已改变，尚未提交执行；请核对原目录后继续。",
+      );
       this.save(t);
+      if (fromQueue && t.status === "blocked")
+        this.say(
+          this.tr("「{v0}」未能启动。{v1}", { v0: t.title, v1: t.progress }),
+          "assistant",
+          [t.id],
+        );
       return;
     }
     const conflict =
@@ -1204,7 +1415,9 @@ export class Runtime extends EventEmitter {
       )?.session;
     if (conflict) {
       const progress =
-        "等待「" + conflict.title + "」释放工作目录，消息已接收。";
+        this.tr("等待「") +
+        conflict.title +
+        this.tr("」释放工作目录，消息已接收。");
       if (t.progress !== progress) {
         t.progress = progress;
         this.save(t);
@@ -1217,24 +1430,58 @@ export class Runtime extends EventEmitter {
       exclusionReason(agent, t.allocation?.requiredCapabilities || [])
     ) {
       t.status = "blocked";
-      t.progress =
-        "原分配 Agent 当前不可用或不满足任务能力要求，尚未提交执行；未自动改派。";
+      t.progress = this.tr(
+        "原分配 Agent 当前不可用或不满足任务能力要求，尚未提交执行；未自动改派。",
+      );
       this.save(t);
+      if (fromQueue && t.status === "blocked")
+        this.say(
+          this.tr("「{v0}」未能启动。{v1}", { v0: t.title, v1: t.progress }),
+          "assistant",
+          [t.id],
+        );
       return;
     }
+    if (t.followupQuestionId) {
+      const q = this.store.get<Question>("questions", t.followupQuestionId);
+      if (q?.answerDelivery === "queued")
+        this.store.put("questions", q.id, { ...q, answerDelivery: "unknown" });
+    }
+    const pendingTurnText = t.pendingTurnText;
+    delete t.pendingTurnText;
+    const owner = Symbol();
+    this.runOwners.set(t.id, owner);
     this.reserved.add(t.id);
     t.status = "running";
-    t.progress = "正在连接执行 Agent。";
+    t.progress = this.tr("正在连接执行 Agent。");
     this.save(t);
     try {
       const handle = await this.deps
-        .adapter(agent.kind)
-        .start({ task: t, agent, onEvent: (e) => this.event(t.id, e) });
-      if (this.closed || !this.reserved.has(t.id)) {
+        .adapter(agent.kind, () => this.preferences().locale)
+        .start({
+          task: withExecutionMemory(
+            pendingTurnText ? { ...t, pendingTurnText } : t,
+            this.memories.select(
+              [t.title, pendingTurnText, t.goal].filter(Boolean).join(" "),
+            ),
+          ),
+          agent,
+          onEvent: (e) => {
+            if (this.runOwners.get(t.id) === owner) this.event(t.id, e);
+          },
+        });
+      if (
+        this.closed ||
+        this.runOwners.get(t.id) !== owner ||
+        !this.reserved.has(t.id)
+      ) {
         handle.dispose();
         return;
       }
       this.handles.set(t.id, handle);
+      for (const q of this.store.list<Question>("questions"))
+        if (q.taskId === t.id && !q.resolved && q.kind === "input")
+          this.tryAnswer(q);
       if (this.task(t.id).status === "stopping") await handle.stop();
       else {
         const updates = this.deferredUpdates.get(t.id) || [];
@@ -1244,22 +1491,55 @@ export class Runtime extends EventEmitter {
             await handle.steer(updates.join("\n"));
             if (!this.closed)
               this.say(
-                "连接建立，补充已送达；采用情况以执行反馈为准。",
+                this.tr("连接建立，补充已送达；采用情况以执行反馈为准。"),
                 "assistant",
                 [t.id],
               );
           } else if (!this.closed)
-            this.say("补充已保存，当前执行端不支持中途追加。", "assistant", [
-              t.id,
-            ]);
+            this.say(
+              this.tr("补充已保存，当前执行端不支持中途追加。"),
+              "assistant",
+              [t.id],
+            );
         }
       }
     } catch {
+      if (this.runOwners.get(t.id) !== owner) return;
       this.event(t.id, {
         type: "failed",
-        text: "执行端未能启动或连接中断，请检查安装和登录状态。",
+        text: this.tr("执行端未能启动或连接中断，请检查安装和登录状态。"),
       });
     }
+  }
+  private recordTaskOutcome(task: Task) {
+    const executor =
+      this.store.get<AgentConnection>("agents", task.agentId)?.name ||
+      task.agentId;
+    const direct =
+      task.responseKind === "answer" && Boolean(task.result?.trim());
+    const limit = direct ? 20000 : 600;
+    const excerpt = publicSnippet(task.result || "", limit + 1);
+    const result =
+      excerpt.length > limit ? excerpt.slice(0, limit) + "…" : excerpt;
+    if (direct) {
+      task.status = "completed";
+      task.progress = this.tr("已返回答复。");
+    }
+    this.store.message({
+      id: `outcome-${task.id}-${task.revision}`,
+      taskOutcome: { revision: task.revision },
+      role: "assistant",
+      taskIds: [task.id],
+      createdAt: new Date().toISOString(),
+      text: direct
+        ? this.tr("{v0} 回复：\n{v1}", { v0: executor, v1: result })
+        : this.tr("{v0} 已结束「{v1}」的执行。{v2}\n交付结果待检查。", {
+            v0: executor,
+            v1: task.title,
+            v2: result ? "\n" + result : this.tr("执行端没有返回文字结果。"),
+          }),
+    });
+    return direct;
   }
   private event(id: string, e: AdapterEvent) {
     if (this.closed) return;
@@ -1267,10 +1547,29 @@ export class Runtime extends EventEmitter {
     if (!this.reserved.has(id)) return;
     if (e.sessionId) t.sessionId = e.sessionId;
     if (e.turnId) t.turnId = e.turnId;
-    if (e.type === "session") this.save(t);
-    else if (e.type === "progress" || e.type === "output") {
+    if (e.type === "failed" && e.taskNotSubmitted && t.followupQuestionId) {
+      const q = this.store.get<Question>("questions", t.followupQuestionId);
+      if (q)
+        this.store.put("questions", q.id, {
+          ...q,
+          answerDelivery: "not_submitted",
+        });
+      delete t.followupQuestionId;
+    }
+    if (e.type === "session") {
+      if (e.turnId && t.followupQuestionId) {
+        const q = this.store.get<Question>("questions", t.followupQuestionId);
+        if (q)
+          this.store.put("questions", q.id, {
+            ...q,
+            answerDelivery: "submitted",
+          });
+        delete t.followupQuestionId;
+      }
+      this.save(t);
+    } else if (e.type === "progress" || e.type === "output") {
       if (t.status !== "stopping")
-        t.progress = (e.text || "正在执行").slice(-2000);
+        t.progress = (e.text || this.tr("正在执行")).slice(-2000);
       if (e.type === "output")
         t.result = ((t.result || "") + (e.text || "")).slice(-200000);
       this.save(t);
@@ -1287,18 +1586,30 @@ export class Runtime extends EventEmitter {
         )
       ) {
         t.status = "running";
-        t.progress = e.text || "问题已结束，等待执行端反馈。";
+        t.progress = e.text || this.tr("问题已结束，等待执行端反馈。");
       }
       this.save(t);
     } else if (e.type === "question") {
       if (t.status === "stopping") return;
+      if (
+        e.requestId !== undefined &&
+        this.store
+          .list<Question>("questions")
+          .some(
+            (q) =>
+              q.taskId === id &&
+              q.revision === t.revision &&
+              q.nativeRequestId === e.requestId,
+          )
+      )
+        return;
       const q: Question = {
         id: randomUUID(),
         taskId: id,
         revision: t.revision,
         kind: e.input ? "input" : "approval",
         choiceLabels: e.choiceLabels,
-        text: e.text || "执行端请求授权",
+        text: e.text || this.tr("执行端请求授权"),
         choices: e.choices || ["decline"],
         resolved: false,
         nativeRequestId: e.requestId,
@@ -1306,7 +1617,8 @@ export class Runtime extends EventEmitter {
       this.store.put("questions", q.id, q);
       t.status = "waiting_input";
       t.progress = q.text;
-      this.save(t);
+      this.store.put("tasks", t.id, t);
+      if (!this.tryAnswer(q)) this.publish();
     } else {
       const previous = t.status;
       t.status =
@@ -1319,54 +1631,123 @@ export class Runtime extends EventEmitter {
               : "unknown";
       t.progress =
         e.type === "completed"
-          ? "本轮执行结束，等待检查结果。"
+          ? this.tr("本轮执行结束，等待检查结果。")
           : e.type === "cancelled"
-            ? "执行已停止，已有修改保留。"
+            ? this.tr("执行已停止，已有修改保留。")
             : e.taskNotSubmitted
-              ? e.text || "任务尚未提交，请检查执行端配置。"
-              : "执行结果待确认，不自动重试。";
+              ? e.text || this.tr("任务尚未提交，请检查执行端配置。")
+              : this.tr("执行结果待确认，不自动重试。");
       if (e.text) t.result = (t.result || "") + "\n" + e.text;
+      const finalText = t.result?.trim() || "";
+      const agent = this.store.get<AgentConnection>("agents", t.agentId);
+      if (
+        e.type === "completed" &&
+        previous !== "stopping" &&
+        t.sessionId &&
+        agent?.kind === "codex" &&
+        agent.capabilities.resume &&
+        isTextFollowup(finalText)
+      ) {
+        this.runOwners.delete(id);
+        this.deferredUpdates.delete(id);
+        this.reserved.delete(id);
+        this.handles.get(id)?.dispose();
+        this.handles.delete(id);
+        const q: Question = {
+          id: randomUUID(),
+          taskId: id,
+          revision: t.revision,
+          kind: "input",
+          choices: [],
+          text: finalText,
+          followup: true,
+          resolved: false,
+        };
+        this.store.transaction(() => {
+          for (const old of this.store.list<Question>("questions"))
+            if (old.taskId === id && !old.resolved)
+              this.store.put("questions", old.id, { ...old, resolved: true });
+          this.store.put("questions", q.id, q);
+          t.status = "waiting_input";
+          t.progress = q.text;
+          this.store.put("tasks", id, t);
+        });
+        if (!this.tryAnswer(q)) this.publish();
+        this.drain();
+        return;
+      }
       for (const q of this.snapshot().questions.filter(
         (q) => q.taskId === id && !q.resolved,
       ))
         this.store.put("questions", q.id, { ...q, resolved: true });
-      if (e.type === "completed")
+      const answered =
+        e.type === "completed" &&
+        t.sourceMessageId &&
+        !t.scheduleId &&
+        this.recordTaskOutcome(t);
+      if (e.type === "completed" && !answered) {
+        const source = t.sourceMessageId
+          ? this.store.getMessage(t.sourceMessageId)
+          : undefined;
         queueCompletion(this.store, {
           executionKey: `task:${t.id}:${t.revision}:${t.turnId || ""}`,
           taskId: t.id,
           taskRevision: t.revision,
-          userRequest: t.sourceMessageId
-            ? this.store.getMessage(t.sourceMessageId)?.text
-            : undefined,
+          userRequest: source ? workRequest(source) : undefined,
           cwd: t.cwd,
           title: t.title,
           requirements: [t.goal],
           result: t.result || "",
           progress: t.progress,
         });
+      }
       this.save(t);
       if (t.status !== "unknown") {
+        this.runOwners.delete(id);
         this.deferredUpdates.delete(id);
         this.reserved.delete(id);
         this.handles.get(id)?.dispose();
         this.handles.delete(id);
         this.drain();
       }
-      if (previous !== t.status && e.type !== "completed")
-        this.say(t.progress, "assistant", [id]);
+      if (previous !== t.status && e.type !== "completed") {
+        const executor =
+          this.store.get<AgentConnection>("agents", t.agentId)?.name ||
+          t.agentId;
+        this.say(`${executor} · ${t.title}：${t.progress}`, "assistant", [id]);
+      }
     }
   }
   private drain() {
     for (const t of this.store.list<Task>("tasks"))
-      if (t.status === "queued") void this.start(t);
+      if (t.status === "queued") void this.start(t, true);
   }
   async stop(id: string) {
     const t = this.task(id);
     if (ended(t) || t.status === "stopping") return;
-    if (["queued", "blocked"].includes(t.status) && !this.reserved.has(t.id)) {
+    if (
+      (["queued", "blocked"].includes(t.status) ||
+        (t.status === "waiting_input" &&
+          this.store
+            .list<Question>("questions")
+            .some((q) => q.taskId === t.id && q.followup && !q.resolved))) &&
+      !this.reserved.has(t.id)
+    ) {
+      for (const q of this.store.list<Question>("questions"))
+        if (q.taskId === t.id && q.followup && !q.resolved)
+          this.store.put("questions", q.id, { ...q, resolved: true });
       t.status = "cancelled";
       t.revision++;
-      t.progress = "已取消等待。";
+      if (t.followupQuestionId) {
+        const q = this.store.get<Question>("questions", t.followupQuestionId);
+        if (q)
+          this.store.put("questions", q.id, {
+            ...q,
+            answerDelivery: "not_submitted",
+          });
+        delete t.followupQuestionId;
+      }
+      t.progress = this.tr("已取消等待。");
       this.save(t);
       return;
     }
@@ -1378,18 +1759,18 @@ export class Runtime extends EventEmitter {
       ) {
         t.revision++;
         t.status = "stopping";
-        t.progress = "正在连接执行端，连接建立后立即请求停止。";
+        t.progress = this.tr("正在连接执行端，连接建立后立即请求停止。");
         this.save(t);
         return;
       }
       t.status = "unknown";
-      t.progress = "未持有原执行连接，停止结果待确认。";
+      t.progress = this.tr("未持有原执行连接，停止结果待确认。");
       this.save(t);
       return;
     }
     t.revision++;
     t.status = "stopping";
-    t.progress = "停止请求已发送，等待确认。";
+    t.progress = this.tr("停止请求已发送，等待确认。");
     this.save(t);
     try {
       await h.stop();
@@ -1399,11 +1780,57 @@ export class Runtime extends EventEmitter {
       if (latest.status !== "stopping" || latest.revision !== t.revision)
         return;
       latest.status = "unknown";
-      latest.progress = "停止结果待确认。";
+      latest.progress = this.tr("停止结果待确认。");
       this.save(latest);
     }
   }
+  private tryAnswer(q: Question): boolean {
+    if (
+      !q.taskId ||
+      q.resolved ||
+      q.kind !== "input" ||
+      this.answering.has(q.id)
+    )
+      return false;
+    const t = this.task(q.taskId);
+    if (
+      t.revision !== 1 ||
+      t.status !== "waiting_input" ||
+      q.revision !== t.revision
+    )
+      return false;
+    const source =
+      t.sourceMessageId && this.store.getMessage(t.sourceMessageId);
+    if (
+      !source ||
+      source.role !== "user" ||
+      source.replyTo ||
+      source.routing?.status !== "completed" ||
+      source.routing.actions.length !== 1 ||
+      source.routing.actions[0] !== "create"
+    )
+      return false;
+    const questions = this.store
+      .list<Question>("questions")
+      .filter((other) => other.taskId === t.id);
+    if (
+      questions.some((other) => other.answeredBy === "supervisor") ||
+      questions.filter((other) => !other.resolved).length !== 1
+    )
+      return false;
+    const choice = explicitAnswer(q.text, workRequest(source));
+    if (!choice || (q.choices.length && !q.choices.includes(choice)))
+      return false;
+    if (!q.followup && !this.handles.has(t.id)) return true; // The adapter may emit input before its handle is ready.
+    void this.answerQuestion(q.id, choice, source.id).catch(() => {
+      /* Unknown delivery is persisted and never resent. */
+    });
+    return true;
+  }
   async answer(id: string, choice: string) {
+    return this.answerQuestion(id, choice);
+  }
+  private async answerQuestion(id: string, choice: string, basis?: string) {
     const q = this.store.get<
       Question & {
         sourceMessageId?: string;
@@ -1418,21 +1845,22 @@ export class Runtime extends EventEmitter {
       !choice.trim() ||
       (q.kind === "approval" && !q.choices.includes(choice))
     )
-      throw Error("问题已失效或选项无效");
+      throw Error(this.tr("问题已失效或选项无效"));
     if (!q.taskId) {
       const original = q.sourceMessageId
         ? this.store.getMessage(q.sourceMessageId)
         : undefined;
       this.receive(
-        "针对此前消息「" +
-          (original?.text || q.text) +
-          "」，我的回答是：" +
+        this.tr("针对此前消息「") +
+          (original ? workRequest(original) : q.text) +
+          this.tr("」，我的回答是：") +
           choice,
         q.cwd!,
         this.snapshot().tasks.some((t) => t.id === choice) ? choice : undefined,
         undefined,
         original?.id,
         q.allocation || normalizeAllocation(original?.request),
+        choice,
       );
       q.resolved = true;
       this.store.put("questions", id, q);
@@ -1441,13 +1869,57 @@ export class Runtime extends EventEmitter {
     }
     const t = this.task(q.taskId),
       h = this.handles.get(t.id);
+    if (t.revision !== q.revision || t.status !== "waiting_input")
+      throw Error(this.tr("追问已失效，请查看最新进展"));
+    const evidence = {
+      answerText: choice,
+      answeredBy: basis ? ("supervisor" as const) : ("user" as const),
+      ...(basis ? { answerBasis: basis } : {}),
+    };
+    const recordReply = () => {
+      if (!basis && q.kind === "input")
+        this.store.message({
+          id: "answer-" + q.id,
+          inReplyToQuestionId: q.id,
+          role: "user",
+          text: choice,
+          taskIds: [t.id],
+          createdAt: new Date().toISOString(),
+        });
+    };
+    if (q.followup && t.sessionId && !this.reserved.has(t.id)) {
+      this.store.transaction(() => {
+        this.store.put("questions", id, {
+          ...q,
+          ...evidence,
+          resolved: true,
+          answerDelivery: "queued",
+        });
+        t.revision++;
+        t.turnId = undefined;
+        t.pendingTurnText = choice;
+        t.followupQuestionId = q.id;
+        t.result = undefined;
+        t.status = "queued";
+        t.progress = this.tr("已收到答复，等待续接原会话。");
+        this.store.put("tasks", t.id, t);
+      });
+      recordReply();
+      this.publish();
+      void this.start(t);
+      return;
+    }
     if (t.revision !== q.revision || !h || q.nativeRequestId === undefined)
-      throw Error("要求已更新，此授权已失效");
+      throw Error(this.tr("要求已更新，此授权已失效"));
     this.answering.add(id);
+    Object.assign(q, evidence, { answerDelivery: "unknown" });
+    this.store.put("questions", q.id, q);
+    recordReply();
     try {
       await h.answer(q.nativeRequestId, choice);
       if (this.closed) return;
       q.resolved = true;
+      q.answerDelivery = "submitted";
       this.store.put("questions", id, q);
       const latest = this.task(t.id);
       if (
@@ -1463,8 +1935,8 @@ export class Runtime extends EventEmitter {
         latest.status = "running";
         latest.progress =
           q.kind === "input"
-            ? "回复已提交，等待执行端反馈。"
-            : "授权选择已提交，等待执行端反馈。";
+            ? this.tr("回复已提交，等待执行端反馈。")
+            : this.tr("授权选择已提交，等待执行端反馈。");
         this.save(latest);
       }
     } catch {
@@ -1477,10 +1949,10 @@ export class Runtime extends EventEmitter {
       latest.status = "unknown";
       latest.progress =
         q.kind === "input"
-          ? "回复的送达结果待确认，不自动重试。"
-          : "授权选择的送达结果待确认，不自动重试。";
+          ? this.tr("回复的送达结果待确认，不自动重试。")
+          : this.tr("授权选择的送达结果待确认，不自动重试。");
       this.save(latest);
-      throw Error("授权送达结果待确认，请核对执行端");
+      throw Error(this.tr("授权送达结果待确认，请核对执行端"));
     } finally {
       this.answering.delete(id);
       if (!this.closed) this.publish();
@@ -1489,10 +1961,12 @@ export class Runtime extends EventEmitter {
 
   reconcile(id: string) {
     const t = this.task(id);
-    if (t.status !== "unknown") throw Error("仅状态待确认任务可人工解除");
+    if (t.status !== "unknown")
+      throw Error(this.tr("仅状态待确认任务可人工解除"));
     this.handles.get(id)?.dispose();
     this.handles.delete(id);
     this.reserved.delete(id);
+    this.runOwners.delete(id);
     this.deferredUpdates.delete(id);
     for (const q of this.snapshot().questions.filter(
       (q) => q.taskId === id && !q.resolved,
@@ -1500,16 +1974,18 @@ export class Runtime extends EventEmitter {
       this.store.put("questions", q.id, { ...q, resolved: true });
     t.revision++;
     t.status = "cancelled";
-    t.progress = "用户已确认原执行停止，已解除目录占用；已有修改尚未验收。";
+    t.progress = this.tr(
+      "用户已确认原执行停止，已解除目录占用；已有修改尚未验收。",
+    );
     this.save(t);
     this.say(t.progress, "system", [id]);
     this.drain();
   }
   accept(id: string) {
     const t = this.task(id);
-    if (t.status !== "review") throw Error("当前任务没有待检查的结果");
+    if (t.status !== "review") throw Error(this.tr("当前任务没有待检查的结果"));
     t.status = "completed";
-    t.progress = "用户已确认完成。";
+    t.progress = this.tr("用户已确认完成。");
     this.save(t);
   }
   shutdown() {
@@ -1520,12 +1996,13 @@ export class Runtime extends EventEmitter {
     for (const id of this.reserved) {
       const t = this.task(id);
       t.status = "unknown";
-      t.progress = "本地服务已退出，执行结果需要核对。";
+      t.progress = this.tr("本地服务已退出，执行结果需要核对。");
       this.store.put("tasks", id, t);
     }
     for (const h of this.handles.values()) h.dispose();
     this.handles.clear();
     this.reserved.clear();
+    this.runOwners.clear();
     this.deferredUpdates.clear();
   }
 }

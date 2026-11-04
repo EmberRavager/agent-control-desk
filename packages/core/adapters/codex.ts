@@ -1,3 +1,5 @@
+import { translate } from "../../i18n/index.cjs";
+import type { Locale } from "../../contracts/index.js";
 import type {
   AgentAdapter,
   AdapterEvent,
@@ -29,8 +31,11 @@ export class CodexAdapter implements AgentAdapter {
     private readonly launcher?: Launcher,
     private readonly timeoutMs = 30000,
     private readonly stopTimeoutMs = 5000,
+    private readonly locale: () => Locale = () => "zh-CN",
   ) {}
   async start({ task, agent, onEvent }: StartRun): Promise<RunHandle> {
+    const tr = (source: string, values?: Record<string, string | number>) =>
+      translate(this.locale(), source, values);
     const proc = launch(
       this.launcher?.executable ?? agent.executable,
       this.launcher?.args ?? ["app-server"],
@@ -136,7 +141,7 @@ export class CodexAdapter implements AgentAdapter {
       });
       emit({
         type: "progress",
-        text: "Codex 的此类请求暂不支持，已拒绝该请求。",
+        text: tr("Codex 的此类请求暂不支持，已拒绝该请求。"),
       });
     };
     const scoped = (params: any) =>
@@ -155,7 +160,7 @@ export class CodexAdapter implements AgentAdapter {
           emit({
             type: "question_resolved",
             requestId: p.requestId,
-            text: "Codex 的问题已结束，等待执行反馈。",
+            text: tr("Codex 的问题已结束，等待执行反馈。"),
           });
         return;
       }
@@ -175,12 +180,15 @@ export class CodexAdapter implements AgentAdapter {
           const network = p.networkApprovalContext;
           const scope =
             network && typeof network.host === "string"
-              ? `请求网络访问：${String(network.protocol || "network")}://${network.host}`
+              ? tr("请求网络访问：{v0}://{v1}", {
+                  v0: String(network.protocol || "network"),
+                  v1: network.host,
+                })
               : typeof p.command === "string"
                 ? p.command
                 : typeof p.reason === "string"
                   ? p.reason
-                  : "Codex 请求修改文件。";
+                  : tr("Codex 请求修改文件。");
           emit({
             type: "question",
             requestId: message.id,
@@ -244,8 +252,8 @@ export class CodexAdapter implements AgentAdapter {
           type: "progress",
           text:
             p.item.type === "fileChange"
-              ? "Codex 正在准备文件修改。"
-              : "Codex 正在执行命令。",
+              ? tr("Codex 正在准备文件修改。")
+              : tr("Codex 正在执行命令。"),
         });
       else if (message.method === "turn/completed") {
         const status = p.turn?.status;
@@ -258,8 +266,8 @@ export class CodexAdapter implements AgentAdapter {
           status === "completed"
             ? undefined
             : status === "interrupted"
-              ? "Codex 已确认停止，已有修改保留。"
-              : "Codex 未正常结束本轮，请核对原生执行结果。",
+              ? tr("Codex 已确认停止，已有修改保留。")
+              : tr("Codex 未正常结束本轮，请核对原生执行结果。"),
         );
       }
     }
@@ -268,7 +276,7 @@ export class CodexAdapter implements AgentAdapter {
       (value) => {
         if (terminal || disposed) return;
         if (!value || typeof value !== "object" || Array.isArray(value)) {
-          finish("failed", "Codex 返回了无法识别的协议记录。");
+          finish("failed", tr("Codex 返回了无法识别的协议记录。"));
           return;
         }
         const message = value as Rpc;
@@ -287,28 +295,34 @@ export class CodexAdapter implements AgentAdapter {
           else if (phase === "starting") {
             earlyBytes += Buffer.byteLength(JSON.stringify(message));
             if (early.length >= 200 || earlyBytes > 4 * 1024 * 1024) {
-              finish("failed", "Codex 启动事件超过限制，执行状态待核对。");
+              finish("failed", tr("Codex 启动事件超过限制，执行状态待核对。"));
               return;
             }
             early.push(message);
           } else if (message.id !== undefined && message.method)
             rejectRequest(message);
         } catch {
-          finish("failed", "Codex 协议处理失败，执行状态待核对。");
+          finish("failed", tr("Codex 协议处理失败，执行状态待核对。"));
         }
       },
       () =>
-        finish("failed", "Codex 协议连接已结束或记录无效，执行状态待核对。"),
+        finish(
+          "failed",
+          tr("Codex 协议连接已结束或记录无效，执行状态待核对。"),
+        ),
     );
     proc.stderr.resume();
     proc.on("error", () =>
-      finish("failed", "Codex 程序无法启动，请检查安装与执行权限。"),
+      finish("failed", tr("Codex 程序无法启动，请检查安装与执行权限。")),
     );
     proc.stdin.on("error", () =>
-      finish("failed", "Codex 输入连接中断，执行状态待核对。"),
+      finish("failed", tr("Codex 输入连接中断，执行状态待核对。")),
     );
     proc.on("close", () =>
-      finish("failed", "Codex 已断开且未返回明确结束事件，请核对执行结果。"),
+      finish(
+        "failed",
+        tr("Codex 已断开且未返回明确结束事件，请核对执行结果。"),
+      ),
     );
     const handle: RunHandle = {
       steer: async (text) => {
@@ -333,7 +347,7 @@ export class CodexAdapter implements AgentAdapter {
             await rpc("turn/interrupt", { threadId, turnId });
         })().catch(() => {
           if (!terminal)
-            finish("failed", "Codex 停止请求未确认，请核对原生执行。");
+            finish("failed", tr("Codex 停止请求未确认，请核对原生执行。"));
         });
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -350,7 +364,7 @@ export class CodexAdapter implements AgentAdapter {
         } catch {
           finish(
             "failed",
-            "Codex 未在时限内确认停止，请人工核对，已有修改保留。",
+            tr("Codex 未在时限内确认停止，请人工核对，已有修改保留。"),
           );
         } finally {
           clearTimeout(timer);
@@ -394,13 +408,20 @@ export class CodexAdapter implements AgentAdapter {
         : await rpc("thread/start", params);
       if (typeof result?.thread?.id !== "string" || !result.thread.id)
         throw Error("Codex did not return a thread identifier.");
+      if (task.sessionId && result.thread.id !== task.sessionId)
+        throw Error("Codex resumed a different thread.");
       threadId = result.thread.id;
       emit({ type: "session", sessionId: threadId });
       phase = "starting";
       submitted = true;
       const turn = await rpc("turn/start", {
         threadId,
-        input: [{ type: "text", text: task.goal }],
+        input: [
+          {
+            type: "text",
+            text: (task.sessionId && task.pendingTurnText) || task.goal,
+          },
+        ],
         cwd: task.cwd,
         approvalPolicy: "on-request",
         sandboxPolicy: {
@@ -419,8 +440,8 @@ export class CodexAdapter implements AgentAdapter {
       finish(
         "failed",
         submitted
-          ? "Codex 未能确认任务开始，执行状态待核对。"
-          : "Codex 未能建立任务会话，请检查原生登录和配置。",
+          ? tr("Codex 未能确认任务开始，执行状态待核对。")
+          : tr("Codex 未能建立任务会话，请检查原生登录和配置。"),
       );
       dispose();
       throw error;

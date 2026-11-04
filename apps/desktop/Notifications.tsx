@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n.js";
 import React, { useEffect, useState } from "react";
 import type {
   Notice,
@@ -17,6 +18,7 @@ export default function Notifications({
   onBack,
   onMenu,
 }: Props) {
+  const { t, dateLocale } = useI18n();
   const [older, setOlder] = useState<Notice[]>([]),
     [more, setMore] = useState(feed?.hasMore ?? false),
     [busy, setBusy] = useState(false),
@@ -50,7 +52,7 @@ export default function Notifications({
       setOlder([...items, ...next.items]);
       setMore(next.hasMore);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "无法加载更早消息");
+      setError(e instanceof Error ? e.message : t("无法加载更早消息"));
     } finally {
       setBusy(false);
     }
@@ -69,7 +71,7 @@ export default function Notifications({
         })),
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "未能标记已读");
+      setError(e instanceof Error ? e.message : t("未能标记已读"));
     } finally {
       setBusy(false);
     }
@@ -80,24 +82,24 @@ export default function Notifications({
         <div className="row">
           <button
             className="icon mobile-toggle"
-            aria-label="打开任务侧栏"
+            aria-label={t("打开任务侧栏")}
             onClick={onMenu}
           >
             ☰
           </button>
-          <h1>消息中心</h1>
+          <h1>{t("消息中心")}</h1>
           <span className="notice-unread-count">
-            {feed?.unread || 0} 条未读
+            {t("{count} 条未读", { count: feed?.unread || 0 })}
           </span>
         </div>
         <button className="button ghost" onClick={onBack}>
-          返回总控
+          {t("返回总控")}
         </button>
       </header>
       <div className="notice-scroll">
         <div className="notice-page">
           <div className="notice-toolbar">
-            <div role="group" aria-label="消息范围">
+            <div role="group" aria-label={t("消息范围")}>
               {(["all", "unread"] as const).map((value) => (
                 <button
                   className={filter === value ? "selected" : ""}
@@ -105,7 +107,7 @@ export default function Notifications({
                   aria-pressed={filter === value}
                   onClick={() => setFilter(value)}
                 >
-                  {value === "all" ? "全部" : "未读"}
+                  {value === "all" ? t("全部") : t("未读")}
                 </button>
               ))}
             </div>
@@ -114,7 +116,7 @@ export default function Notifications({
               disabled={busy || !feed?.unread}
               onClick={() => void readAll()}
             >
-              全部已读
+              {t("全部已读")}
             </button>
           </div>
           {error && (
@@ -124,17 +126,17 @@ export default function Notifications({
           )}
           {!feed ? (
             <p className="loading">
-              当前后台尚无消息中心，请处理任务后重启 ACD。
+              {t("当前后台尚无消息中心，请处理任务后重启 ACD。")}
             </p>
           ) : !visible.length ? (
             <div className="notice-empty">
               <span aria-hidden="true">✓</span>
               <h2>
                 {filter === "unread"
-                  ? "暂时没有未读消息"
-                  : "重要进展会出现在这里"}
+                  ? t("暂时没有未读消息")
+                  : t("重要进展会出现在这里")}
               </h2>
-              <p>需要确认、执行结束或遇到问题时，会留下一条记录。</p>
+              <p>{t("需要确认、执行结束或遇到问题时，会留下一条记录。")}</p>
             </div>
           ) : (
             <div className="notice-list">
@@ -172,23 +174,23 @@ export default function Notifications({
                     <span className="notice-meta">
                       {n.taskId && <code>{n.taskId.slice(0, 8)}</code>}
                       {n.superseded ? (
-                        <span>已有更新的报告</span>
+                        <span>{t("已有更新的报告")}</span>
                       ) : (
-                        !n.active && <span>已处理或已更新</span>
+                        !n.active && <span>{t("已处理或已更新")}</span>
                       )}
-                      {n.readAt && <span>已读</span>}
+                      {n.readAt && <span>{t("已读")}</span>}
                     </span>
                   </span>
                   <span className="notice-time">
                     <time dateTime={n.createdAt}>
-                      {new Date(n.createdAt).toLocaleString(undefined, {
+                      {new Date(n.createdAt).toLocaleString(dateLocale, {
                         month: "numeric",
                         day: "numeric",
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
                     </time>
-                    {!n.readAt && <i aria-label="未读" />}
+                    {!n.readAt && <i aria-label={t("未读")} />}
                   </span>
                 </button>
               ))}
@@ -201,7 +203,7 @@ export default function Notifications({
                 disabled={busy}
                 onClick={() => void loadMore()}
               >
-                {busy ? "正在加载…" : "加载更早消息"}
+                {busy ? t("正在加载…") : t("加载更早消息")}
               </button>
             </div>
           )}

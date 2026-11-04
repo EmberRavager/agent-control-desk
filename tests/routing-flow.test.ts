@@ -384,3 +384,161 @@ test("duplicate actions within one decision clarify while unrelated work and an 
   assert.equal(final.questions.length, 1);
   assert.equal(x.starts, 1);
 });
+
+test("a broadcast creates separately addressed tasks with honest dispatch receipts", async (t) => {
+  const x = fixture(async (_config, _key, _snapshot, _text, cwd) => ({
+    reply: "",
+    actions: ["codex", "claude"].map((id) => ({
+      type: "create" as const,
+      title: "今天天气",
+      goal: "杭州今天天气怎么样？",
+      agentId: id,
+      requestedAgentId: id,
+      cwd,
+      responseKind: "answer" as const,
+    })),
+  }));
+  t.after(() => x.close());
+  for (const kind of ["codex", "claude"] as const)
+    x.store.put("agents", kind, {
+      id: kind,
+      kind,
+      name: kind === "codex" ? "Codex" : "Claude",
+      available: true,
+      selected: true,
+      supported: true,
+      executable: "/not-used",
+      capabilities: { steer: true, resume: true },
+    } satisfies AgentConnection);
+  const request = x.runtime.receive(
+    "问下 Codex 和 Claude 杭州今天天气",
+    x.directory,
+  );
+  await until(
+    () => x.store.getMessage(request.id)?.routing?.status === "completed",
+  );
+  const state = x.runtime.snapshot();
+  assert.deepEqual(
+    state.tasks.map((task) => [task.agentId, task.status, task.responseKind]),
+    [
+      ["codex", "running", "answer"],
+      ["claude", "queued", "answer"],
+    ],
+  );
+  for (const [i, task] of state.tasks.entries()) {
+    const receipt = state.messages.find(
+      (message) =>
+        message.replyTo === request.id && message.taskIds.includes(task.id),
+    );
+    assert.ok(receipt);
+    assert.ok(receipt.text.includes(i === 0 ? "Codex" : "Claude"));
+    assert.ok(receipt.text.includes(task.goal));
+    if (i === 1) assert.match(receipt.text, /排队|等待/);
+  }
+  assert.equal(x.starts, 1);
+});
+
+test("a small supervisor's wrapper or premature clarification hands the named agent the original question", async (t) => {
+  const x = fixture();
+  t.after(() => x.close());
+  x.store.put("agents", "codex", {
+    id: "codex",
+    kind: "codex",
+    name: "Codex",
+    executable: "/unused",
+    selected: true,
+    available: true,
+    capabilities: { steer: true, resume: true },
+  } satisfies AgentConnection);
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              reply: "",
+              actions: [
+                ++calls === 1
+                  ? {
+                      type: "clarify",
+                      taskIds: [],
+                      text: "请问你是想让我去问吗？",
+                    }
+                  : {
+                      type: "create",
+                      title: "比较权限",
+                      agentId: "codex",
+                      goal: "使用 Codex Agent 查询今天的天气情况并汇报结果。",
+                    },
+              ],
+            }),
+          },
+        },
+      ],
+    }),
+  );
+  for (const [text, goal] of [
+    ["问下codex今天天气", "今天天气"],
+    [
+      "请问一下 Codex，比较 Codex 和 Claude 的权限，只读，不调用工具。",
+      "比较 Codex 和 Claude 的权限，只读，不调用工具。",
+    ],
+  ]) {
+    const m = x.runtime.receive(text, x.directory);
+    await until(
+      () => x.store.getMessage(m.id)?.routing?.status === "completed",
+    );
+    const task = x.runtime
+      .snapshot()
+      .tasks.find((task) => task.sourceMessageId === m.id);
+    assert.equal(task?.goal, goal);
+    assert.equal(task?.agentId, "codex");
+    if (goal === "今天天气") assert.equal(task?.responseKind, "answer");
+  }
+});
+
+test("ambiguous product names, negative and deferred delegations keep the supervisor's clarification", async (t) => {
+  const x = fixture();
+  t.after(() => x.close());
+  x.store.put("agents", "codex", {
+    id: "codex",
+    kind: "codex",
+    name: "Codex",
+    executable: "/unused",
+    selected: true,
+    available: true,
+    capabilities: { steer: true, resume: true },
+  } satisfies AgentConnection);
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              reply: "",
+              actions: [
+                { type: "clarify", taskIds: [], text: "请说明你的意思。" },
+              ],
+            }),
+          },
+        },
+      ],
+    }),
+  );
+  for (const text of [
+    "不要问下 Codex 今天天气",
+    "问下 Codex 的配置",
+    "问下 Codex 删除旧文件",
+    "问下 Codex 和 Claude 的区别",
+    "问下 Codex CLI 的参数",
+    "问下 Codex，今天天气，等我确认再发送。",
+  ]) {
+    const m = x.runtime.receive(text, x.directory);
+    await until(
+      () => x.store.getMessage(m.id)?.routing?.status === "completed",
+    );
+    assert.deepEqual(x.store.getMessage(m.id)?.routing?.actions, ["clarify"]);
+  }
+  assert.equal(x.starts, 0);
+});

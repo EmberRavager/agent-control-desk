@@ -693,3 +693,305 @@ test("an inconclusive assessment retains the user's raw requirements for the nex
     await x.close();
   }
 });
+
+test("supervisor gives a direct attributed answer without a report job, while work remains reviewable", async () => {
+  const x = fixture();
+  try {
+    for (const kind of ["answer", "work"] as const) {
+      const task = x.runtime.prepareTask(
+        {
+          title: "独立事项",
+          goal: "查阅说明",
+          agentId: "fixture",
+          cwd: x.directory,
+        },
+        "fixture-origin",
+      );
+      task.responseKind = kind;
+      x.runtime.dispatchPreparedTask(task);
+      await until(() => x.runs.some((r) => r.task.id === task.id));
+      const run = x.runs.find((r) => r.task.id === task.id)!;
+      run.onEvent({ type: "completed", text: "这是执行者给出的结果。" });
+      const state = x.runtime.snapshot();
+      const outcome = state.messages.find(
+        (m) => m.taskOutcome && m.taskIds.includes(task.id),
+      );
+      assert.ok(
+        outcome?.text.includes("Codex") &&
+          outcome.text.includes("这是执行者给出的结果。"),
+      );
+      assert.equal(
+        state.tasks.find((t) => t.id === task.id)?.status,
+        kind === "answer" ? "completed" : "review",
+      );
+      assert.equal(
+        x.store
+          .list<CompletionJob>("completion-jobs")
+          .filter((j) => j.taskId === task.id).length,
+        kind === "answer" ? 0 : 1,
+      );
+    }
+  } finally {
+    await x.close();
+  }
+});
+
+test("uncertain execution tells the supervisor which executor and assignment need checking", async () => {
+  const x = fixture();
+  try {
+    const task = x.runtime.prepareTask(
+      {
+        title: "核对测试清单",
+        goal: "列出缺项",
+        agentId: "fixture",
+        cwd: x.directory,
+      },
+      "fixture-origin",
+    );
+    x.runtime.dispatchPreparedTask(task);
+    await until(() => x.runs.length === 1);
+    x.runs[0].onEvent({ type: "failed", text: "Disconnected" });
+    const state = x.runtime.snapshot();
+    assert.equal(state.tasks[0].status, "unknown");
+    assert.ok(
+      state.messages.some(
+        (m) =>
+          m.taskIds.includes(task.id) &&
+          m.text.includes("Codex") &&
+          m.text.includes(task.title) &&
+          m.text.includes("待确认"),
+      ),
+    );
+  } finally {
+    await x.close();
+  }
+});
+
+test("a queued assignment that loses its executor reports the blockage to the supervisor", async () => {
+  const x = fixture();
+  try {
+    for (const title of ["先执行", "随后执行"])
+      x.runtime.dispatchPreparedTask(
+        x.runtime.prepareTask(
+          { title, goal: title, agentId: "fixture", cwd: x.directory },
+          "fixture-origin",
+        ),
+      );
+    const second = x.runtime
+      .snapshot()
+      .tasks.find((task) => task.title === "随后执行")!;
+    assert.equal(second.status, "queued");
+    x.store.remove("agents", "fixture");
+    x.runs[0].onEvent({ type: "completed", text: "Fixture result" });
+    const state = x.runtime.snapshot();
+    assert.equal(
+      state.tasks.find((t) => t.id === second.id)?.status,
+      "blocked",
+    );
+    assert.ok(
+      state.messages.some(
+        (m) =>
+          m.taskIds.includes(second.id) &&
+          m.text.includes(second.title) &&
+          m.text.includes("尚未提交"),
+      ),
+    );
+  } finally {
+    await x.close();
+  }
+});
+
+test("delivery uses relevant report preferences and records workflows once per task, including native sessions", async (t) => {
+  const x = fixture();
+  const workflow = {
+    activity: "编写周报",
+    steps: ["汇总合并记录", "列出交付风险"],
+  };
+  const preference = {
+    kind: "preference",
+    title: "汇报风格",
+    content: "只给三条摘要",
+  } as const;
+  const seen: CompletionInput[] = [];
+  x.runtime.deps.report = async (_c, _k, input) => {
+    seen.push(input);
+    return {
+      outcome: input.result === "等待" ? "in_progress" : "delivered",
+      objective: input.title,
+      evidence: input.result,
+      summary: "任务已完成。",
+      suggestions: ["查看周报"],
+      workflow,
+    };
+  };
+  x.runtime.memories.create(preference);
+  const observation = t.mock.method(x.runtime.memories, "observeWorkflow");
+  try {
+    x.reporter.start();
+    for (const [key, result, source] of [
+      ["a", "周报一已交付", "assigned"],
+      ["b", "周报二已交付", "native"],
+      ["c", "周报三已交付", "native"],
+      ["d", "等待", "assigned"],
+    ]) {
+      const job = queueCompletion(x.store, {
+        executionKey: key,
+        title: "周报",
+        requirements: ["汇总合并记录并列出交付风险"],
+        result,
+        progress: "",
+        ...(source === "assigned"
+          ? { taskId: "owned-task" }
+          : {
+              native: {
+                id: "fixture-session",
+                sessionId: "thread",
+                agentName: "fixture",
+                turnId: key,
+              },
+            }),
+      });
+      x.store.put("completion-jobs", job.id, { ...job, prepared: true });
+      x.runtime.publish();
+      await until(() =>
+        ["done", "skipped"].includes(
+          x.store.get<CompletionJob>("completion-jobs", job.id)!.state,
+        ),
+      );
+    }
+    assert.deepEqual(seen[0].personalMemories, [preference]);
+    assert.deepEqual(seen[1].workflowActivities, ["编写周报"]);
+    assert.deepEqual(
+      observation.mock.calls.map((call) => call.arguments[1]),
+      ["owned-task", "native:fixture-session", "native:fixture-session"],
+    );
+    assert.equal(
+      x.runtime.memories.list().find((m) => m.kind === "workflow")
+        ?.evidenceCount,
+      2,
+    );
+    assert.equal(seen.length, 4);
+  } finally {
+    await x.close();
+  }
+});
+
+test("a persisted observation repairs after restart without rejudging or replaying old deliveries", async (t) => {
+  const x = fixture();
+  const workflow = {
+    activity: "编写周报",
+    steps: ["汇总合并记录", "列出交付风险"],
+  };
+  const job = queueCompletion(x.store, {
+    executionKey: "crash",
+    taskId: "weekly-task",
+    title: "周报",
+    requirements: ["编写周报"],
+    result: "周报已交付",
+    progress: "",
+  });
+  x.store.put("completion-jobs", job.id, {
+    ...job,
+    state: "working",
+    pendingWorkflow: workflow,
+  });
+  x.store.message({
+    id: job.messageId,
+    role: "assistant",
+    text: "已交付",
+    taskIds: ["weekly-task"],
+    createdAt: new Date().toISOString(),
+    completion: { id: job.id, title: "周报", status: "ready" },
+  });
+  const directory = x.directory;
+  await x.close(false);
+  const next = fixture(directory);
+  const observation = t.mock.method(next.runtime.memories, "observeWorkflow");
+  try {
+    next.reporter.start();
+    await until(
+      () =>
+        next.store.get<CompletionJob>("completion-jobs", job.id)?.state ===
+        "done",
+    );
+    assert.deepEqual(
+      observation.mock.calls.map((call) => call.arguments[1]),
+      ["weekly-task"],
+    );
+    assert.equal(
+      next.store.get<CompletionJob>("completion-jobs", job.id)?.pendingWorkflow,
+      undefined,
+    );
+    assert.equal(next.inputs.length, 0);
+  } finally {
+    await next.close();
+  }
+});
+
+test("a memory write failure does not withhold delivery; repair runs without the model and old jobs do not learn", async (t) => {
+  const x = fixture();
+  let assessments = 0;
+  x.runtime.deps.report = async (_config, _key, input) => {
+    assessments++;
+    return {
+      outcome: "delivered",
+      objective: input.title,
+      evidence: input.result,
+      summary: "周报已交付",
+      suggestions: ["查看周报"],
+      workflow: { activity: "周报", steps: ["汇总改动", "列出风险"] },
+    };
+  };
+  t.mock.method(
+    x.runtime.memories,
+    "observeWorkflow",
+    () => {
+      throw Error("模拟写入失败");
+    },
+    { times: 1 },
+  );
+  try {
+    const input = {
+      taskId: "weekly-task",
+      title: "周报",
+      requirements: ["整理周报"],
+      result: "周报就绪",
+      progress: "结束",
+    };
+    const job = queueCompletion(x.store, { ...input, executionKey: "new" });
+    x.reporter.start();
+    await until(
+      () =>
+        x.store.get<CompletionJob>("completion-jobs", job.id)?.state === "done",
+    );
+    const done = x.store.get<CompletionJob>("completion-jobs", job.id)!;
+    assert.ok(done.pendingWorkflow);
+    assert.equal(
+      x.store.getMessage(job.messageId)?.completion?.status,
+      "ready",
+    );
+    x.store.put("completion-jobs", job.id, { ...done, retryAt: 0 });
+    x.runtime.publish();
+    await until(
+      () =>
+        !x.store.get<CompletionJob>("completion-jobs", job.id)?.pendingWorkflow,
+    );
+    assert.deepEqual(x.runtime.memories.workflowActivities(), ["周报"]);
+    assert.equal(assessments, 1);
+    const { learnWorkflow: _newFlag, ...old } = queueCompletion(x.store, {
+      ...input,
+      taskId: "older-task",
+      executionKey: "old",
+    });
+    x.store.put("completion-jobs", old.id, old);
+    x.runtime.publish();
+    await until(
+      () =>
+        x.store.get<CompletionJob>("completion-jobs", old.id)?.state === "done",
+    );
+    assert.equal(assessments, 2);
+    assert.equal(x.runtime.memories.list().length, 0);
+  } finally {
+    await x.close();
+  }
+});

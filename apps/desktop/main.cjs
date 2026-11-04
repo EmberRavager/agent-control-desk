@@ -1,3 +1,6 @@
+const { translate, normalizeLocale } = require("../../packages/i18n/index.cjs");
+let locale = "zh-CN";
+const t = (source, values) => translate(locale, source, values);
 const {
   app,
   BrowserWindow,
@@ -36,7 +39,14 @@ let notifier,
   pendingNotice = null;
 let backgroundEnabled = true;
 let mayStartDaemon = true;
+const memoryId = "[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}";
 const allowed = [
+  ["GET", /^\/api\/preferences$/],
+  ["PUT", /^\/api\/preferences$/],
+  ["GET", /^\/api\/memories$/],
+  ["POST", /^\/api\/memories$/],
+  ["PUT", new RegExp("^/api/memories/" + memoryId + "$")],
+  ["POST", new RegExp("^/api/memories/" + memoryId + "/delete$")],
   ["GET", /^\/api\/schedules(?:\/[a-f0-9-]{36}\/runs)?$/],
   ["POST", /^\/api\/schedules(?:\/[a-f0-9-]{36}\/(pause|resume|delete))?$/],
   ["PUT", /^\/api\/schedules\/[a-f0-9-]{36}$/],
@@ -80,7 +90,7 @@ async function readDescriptor() {
     typeof value.token !== "string" ||
     value.token.length < 32
   )
-    throw new Error("本地服务描述无效");
+    throw new Error(t("本地服务描述无效"));
   const url = new URL(value.url);
   if (
     url.protocol !== "http:" ||
@@ -92,15 +102,15 @@ async function readDescriptor() {
     url.username ||
     url.password
   )
-    throw new Error("本地服务描述无效");
+    throw new Error(t("本地服务描述无效"));
   const response = await fetch(new URL("/api/health", url), {
     signal: AbortSignal.timeout(1500),
   });
-  if (!response.ok) throw new Error("本地服务不可用");
+  if (!response.ok) throw new Error(t("本地服务不可用"));
   const health = await response.json();
-  if (health.protocol !== 1) throw new Error("本地服务版本不兼容");
+  if (health.protocol !== 1) throw new Error(t("本地服务版本不兼容"));
   if (health.pid !== value.pid)
-    throw new Error("本地服务描述已过期，进程身份不匹配");
+    throw new Error(t("本地服务描述已过期，进程身份不匹配"));
   value.capabilities = Array.isArray(health.capabilities)
     ? health.capabilities.filter((item) => typeof item === "string")
     : [];
@@ -114,7 +124,9 @@ async function startDaemon() {
   } catch {}
   if (!mayStartDaemon)
     throw new Error(
-      "本地后台未运行。请运行 acd service start，或退出并重新打开 ACD；已保存任务不会自动重跑。",
+      t(
+        "本地后台未运行。请运行 acd service start，或退出并重新打开 ACD；已保存任务不会自动重跑。",
+      ),
     );
   mayStartDaemon = false;
   // Run the daemon independently of the GUI lifecycle. Credentials stay in the daemon.
@@ -147,23 +159,25 @@ async function startDaemon() {
     } catch {}
     if (spawnFailure)
       throw new Error(
-        "无法启动本地服务进程（" +
+        t("无法启动本地服务进程（") +
           spawnFailure +
-          "）。请检查 Node 运行时和安装目录。",
+          t("）。请检查 Node 运行时和安装目录。"),
       );
     if (exitCode !== null)
       throw new Error(
-        "本地服务启动后退出（代码 " +
+        t("本地服务启动后退出（代码 ") +
           exitCode +
           (app.isPackaged
-            ? "）。请检查本地数据目录权限，并退出后重新打开 ACD。"
-            : "）。请运行 npm run daemon 查看诊断。"),
+            ? t("）。请检查本地数据目录权限，并退出后重新打开 ACD。")
+            : t("）。请运行 npm run daemon 查看诊断。")),
       );
   }
   throw new Error(
     app.isPackaged
-      ? "等待本地服务启动超时。请检查本地数据目录权限，并退出后重新打开 ACD。"
-      : "等待本地服务启动超时。请先运行 npm run daemon 查看启动诊断。",
+      ? t(
+          "等待本地服务启动超时。请检查本地数据目录权限，并退出后重新打开 ACD。",
+        )
+      : t("等待本地服务启动超时。请先运行 npm run daemon 查看启动诊断。"),
   );
 }
 async function connectDaemon() {
@@ -180,7 +194,7 @@ function trusted(event) {
     event.senderFrame !== window.webContents.mainFrame ||
     event.senderFrame.url !== rendererUrl
   )
-    throw new Error("拒绝非受信任主窗口请求");
+    throw new Error(t("拒绝非受信任主窗口请求"));
 }
 async function request(method, resource, body) {
   if (
@@ -188,41 +202,67 @@ async function request(method, resource, body) {
     typeof resource !== "string" ||
     !allowed.some(([verb, route]) => verb === method && route.test(resource))
   )
-    throw new Error("不支持的客户端操作");
+    throw new Error(t("不支持的客户端操作"));
   if (!descriptor) await connectDaemon();
-  const requiredCapability = resource.startsWith("/api/schedules")
-    ? "schedules"
-    : /^\/api\/messages\/[a-f0-9-]{36}\/retry$/.test(resource)
-      ? "routing-retry"
-      : resource.startsWith("/api/reports/")
-        ? "completion-reports"
-        : /^\/api\/observations\/native-[a-f0-9]{24}\/analyze$/.test(resource)
-          ? "native-insight"
-          : resource === "/api/observations/refresh"
-            ? "native-observation"
-            : resource.startsWith("/api/notifications")
-              ? resource.endsWith("/report")
-                ? "notification-report-detail"
-                : "notifications"
-              : resource.startsWith("/api/wechat")
-                ? resource === "/api/wechat/test"
-                  ? "wechat-test"
-                  : body?.completionReports !== undefined
-                    ? "wechat-reports"
-                    : "wechat"
-                : resource === "/api/model/models"
-                  ? "model-catalog"
-                  : /^\/api\/skills\/[^/]+\/translate$/.test(resource)
-                    ? "skill-translation"
-                    : resource === "/api/messages" && body?.clientMessageId
-                      ? "message-idempotency"
-                      : null;
+  if (
+    resource === "/api/allocation" &&
+    (method === "GET" || body?.agentIds !== undefined) &&
+    !descriptor.capabilities?.includes("allocation-priority")
+  )
+    throw new Error(
+      t(
+        "本地后台版本较旧，尚不支持 Agent 优先级排序。请在任务结束后停止后台并重新打开新版 ACD。",
+      ),
+    );
+  if (
+    resource.startsWith("/api/memories") &&
+    !descriptor.capabilities?.includes("personal-memory")
+  )
+    throw new Error(
+      t(
+        "本地后台版本较旧，尚不支持个人记忆。请在任务结束后停止后台并重新打开新版 ACD。",
+      ),
+    );
+  const requiredCapability =
+    resource === "/api/preferences"
+      ? "i18n"
+      : resource.startsWith("/api/schedules")
+        ? "schedules"
+        : /^\/api\/messages\/[a-f0-9-]{36}\/retry$/.test(resource)
+          ? "routing-retry"
+          : resource.startsWith("/api/reports/")
+            ? "completion-reports"
+            : /^\/api\/observations\/native-[a-f0-9]{24}\/analyze$/.test(
+                  resource,
+                )
+              ? "native-insight"
+              : resource === "/api/observations/refresh"
+                ? "native-observation"
+                : resource.startsWith("/api/notifications")
+                  ? resource.endsWith("/report")
+                    ? "notification-report-detail"
+                    : "notifications"
+                  : resource.startsWith("/api/wechat")
+                    ? resource === "/api/wechat/test"
+                      ? "wechat-test"
+                      : body?.completionReports !== undefined
+                        ? "wechat-reports"
+                        : "wechat"
+                    : resource === "/api/model/models"
+                      ? "model-catalog"
+                      : /^\/api\/skills\/[^/]+\/translate$/.test(resource)
+                        ? "skill-translation"
+                        : resource === "/api/messages" && body?.clientMessageId
+                          ? "message-idempotency"
+                          : null;
   if (
     requiredCapability &&
     !descriptor.capabilities?.includes(requiredCapability)
   )
     throw new Error(
-      "本地后台版本较旧，请先处理进行中的任务，再停止后台并重新打开 ACD 加载更新。",
+      t(
+        "本地后台版本较旧，请先处理进行中的任务，再停止后台并重新打开 ACD 加载更新。",
+      ),
     );
   if (
     (resource === "/api/allocation" ||
@@ -232,7 +272,9 @@ async function request(method, resource, body) {
     !descriptor.capabilities?.includes("agent-allocation")
   )
     throw new Error(
-      "本地后台版本较旧，尚不支持任务分配约束；请先处理进行中的任务，再停止后台并重新打开 ACD 加载更新。",
+      t(
+        "本地后台版本较旧，尚不支持任务分配约束；请先处理进行中的任务，再停止后台并重新打开 ACD 加载更新。",
+      ),
     );
   const response = await fetch(new URL(resource, descriptor.url), {
     method,
@@ -246,8 +288,19 @@ async function request(method, resource, body) {
   const value = await response.json();
   if (!response.ok)
     throw new Error(
-      typeof value.error === "string" ? value.error : "本地服务请求失败",
+      typeof value.error === "string" ? value.error : t("本地服务请求失败"),
     );
+  if (resource === "/api/preferences" || resource === "/api/state") {
+    const next = normalizeLocale(
+      resource === "/api/preferences"
+        ? value.locale
+        : value.preferences?.locale,
+    );
+    if (next !== locale) {
+      locale = next;
+      updateTrayMenu();
+    }
+  }
   return value;
 }
 async function stream() {
@@ -261,7 +314,7 @@ async function stream() {
         headers: { Authorization: `Bearer ${descriptor.token}` },
         signal,
       });
-      if (!response.ok || !response.body) throw new Error("进展连接不可用");
+      if (!response.ok || !response.body) throw new Error(t("进展连接不可用"));
       window.webContents.send("acd:connection", true);
       let buffer = "";
       const decoder = new TextDecoder();
@@ -281,6 +334,11 @@ async function stream() {
             block.split("\n").some((line) => line.trim() === "event: state")
           ) {
             const state = JSON.parse(data);
+            const nextLocale = normalizeLocale(state.preferences?.locale);
+            if (nextLocale !== locale) {
+              locale = nextLocale;
+              updateTrayMenu();
+            }
             backgroundEnabled =
               state.notifications?.preferences?.background ?? true;
             notifier?.update(state);
@@ -296,7 +354,7 @@ async function stream() {
           "acd:error",
           error instanceof Error
             ? error.message
-            : "本地服务连接失败，正在重试。",
+            : t("本地服务连接失败，正在重试。"),
         );
     }
     if (!signal.aborted && window && !window.isDestroyed())
@@ -315,6 +373,23 @@ function showDesk(target) {
     window.webContents.send("acd:notice-open", pendingNotice);
   }
 }
+function updateTrayMenu() {
+  if (!tray) return;
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: t("打开 ACD"), click: () => showDesk() },
+      { label: t("消息中心"), click: () => showDesk(null) },
+      { type: "separator" },
+      {
+        label: t("退出桌面端（后台任务继续）"),
+        click: () => {
+          quitting = true;
+          app.quit();
+        },
+      },
+    ]),
+  );
+}
 function makeTray() {
   try {
     const image = nativeImage.createFromPath(
@@ -327,20 +402,7 @@ function makeTray() {
     if (process.platform === "darwin") image.setTemplateImage(true);
     tray = new Tray(image);
     tray.setToolTip("Agent Control Desk");
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        { label: "打开 ACD", click: () => showDesk() },
-        { label: "消息中心", click: () => showDesk(null) },
-        { type: "separator" },
-        {
-          label: "退出桌面端（后台任务继续）",
-          click: () => {
-            quitting = true;
-            app.quit();
-          },
-        },
-      ]),
-    );
+    updateTrayMenu();
     tray.on("click", () => showDesk());
   } catch {
     tray = null;
@@ -355,7 +417,7 @@ if (process.argv?.includes("--diagnose-notifications")) {
       });
     } catch {
       console.log(
-        JSON.stringify({ stage: "error", message: "无法完成通知诊断" }),
+        JSON.stringify({ stage: "error", message: t("无法完成通知诊断") }),
       );
       process.exitCode = 1;
     } finally {
@@ -391,7 +453,9 @@ else {
       badge: (count) => {
         app.setBadgeCount?.(count);
         tray?.setToolTip(
-          count ? `ACD · ${count} 条未读消息` : "Agent Control Desk",
+          count
+            ? t("ACD · {count} 条未读消息", { count })
+            : "Agent Control Desk",
         );
       },
     });
@@ -449,17 +513,22 @@ else {
           : process.platform === "win32"
             ? "ms-settings:notifications"
             : null;
-      if (!target) throw Error("请在系统设置中打开通知选项");
+      if (!target) throw Error(t("请在系统设置中打开通知选项"));
       await shell.openExternal(target);
     });
     ipcMain.handle("acd:local-info", (event) => {
       trusted(event);
-      return { dataDirectory: dataDir };
+      return {
+        dataDirectory: dataDir,
+        version: app.isPackaged
+          ? app.getVersion()
+          : require("../../package.json").version,
+      };
     });
     ipcMain.handle("acd:data-folder", async (event) => {
       trusted(event);
       const error = await shell.openPath(dataDir);
-      if (error) throw new Error("无法打开本地数据目录");
+      if (error) throw new Error(t("无法打开本地数据目录"));
     });
     ipcMain.handle("acd:directory", async (event) => {
       trusted(event);
@@ -472,14 +541,14 @@ else {
       trusted(event);
       const result = await dialog.showOpenDialog(window, {
         properties: ["openFile"],
-        title: "选择 Agent 可执行程序",
+        title: t("选择 Agent 可执行程序"),
       });
       return result.canceled ? null : result.filePaths[0];
     });
     ipcMain.handle("acd:skill-folder", async (event, id) => {
       trusted(event);
       if (typeof id !== "string" || !/^[A-Za-z0-9_-]+$/.test(id))
-        throw new Error("无效技能编号");
+        throw new Error(t("无效技能编号"));
       const detail = await request(
         "GET",
         "/api/skills/" + encodeURIComponent(id),
@@ -488,7 +557,7 @@ else {
         !detail?.skill?.path ||
         path.basename(detail.skill.path) !== "SKILL.md"
       )
-        throw new Error("技能路径无效");
+        throw new Error(t("技能路径无效"));
       shell.showItemInFolder(detail.skill.path);
     });
     ipcMain.on("acd:subscribe", (event) => {
@@ -513,10 +582,12 @@ else {
       await window.loadFile(rendererFile);
     } catch {
       dialog.showErrorBox(
-        "无法打开 ACD 界面",
+        t("无法打开 ACD 界面"),
         app.isPackaged
-          ? "应用界面文件不完整，请重新安装 ACD。"
-          : "没有找到可加载的桌面界面。请先在项目目录运行 npm run build，再运行 npm run desktop。",
+          ? t("应用界面文件不完整，请重新安装 ACD。")
+          : t(
+              "没有找到可加载的桌面界面。请先在项目目录运行 npm run build，再运行 npm run desktop。",
+            ),
       );
       window?.close();
     }

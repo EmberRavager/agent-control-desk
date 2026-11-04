@@ -59,7 +59,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  }
 });
 `;
-async function setup(goal: string) {
+async function setup(goal: string, overrides: Partial<Task> = {}) {
   const dir = await mkdtemp(join(tmpdir(), "acd-codex-contract-"));
   const file = join(dir, "fixture.cjs");
   await writeFile(file, fixture);
@@ -75,6 +75,7 @@ async function setup(goal: string) {
     progress: "",
     createdAt: "now",
     updatedAt: "now",
+    ...overrides,
   };
   let handle: RunHandle | undefined;
   try {
@@ -211,6 +212,19 @@ test("disposing Codex releases an early steer waiting for native start without e
     f.handle.dispose();
     await assert.rejects(() => pending, /No active|disposed/);
     assert.equal(terminal(f.events).length, 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test("Codex resumes the original thread with only the new turn text", async () => {
+  const f = await setup("旧目标\n补充：complete", {
+    sessionId: "owned-thread",
+    pendingTurnText: "complete",
+  });
+  try {
+    await until(() => terminal(f.events).length > 0);
+    assert.equal(terminal(f.events)[0].type, "completed");
   } finally {
     await f.close();
   }

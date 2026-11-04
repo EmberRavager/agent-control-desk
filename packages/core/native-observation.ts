@@ -247,7 +247,7 @@ export class NativeObserver {
           return {
             agentId: agent.id,
             state: "unsupported",
-            message: "此 Agent 的原生会话观测尚未接入",
+            message: this.runtime.tr("此 Agent 的原生会话观测尚未接入"),
             sessions: [],
           };
         try {
@@ -265,13 +265,13 @@ export class NativeObserver {
           return {
             agentId: agent.id,
             state: "unavailable",
-            message: error instanceof Error ? error.message : "原生会话未同步",
+            message: this.runtime.userError(error),
             sessions: (
               previous.find((item) => item.agentId === agent.id)?.sessions || []
             ).map((session) => ({
               ...session,
               status: "unknown",
-              progress: "连接已断开，当前状态未知",
+              progress: this.runtime.tr("连接已断开，当前状态未知"),
             })),
           };
         }

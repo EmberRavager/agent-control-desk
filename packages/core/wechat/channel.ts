@@ -1,3 +1,4 @@
+import { resultText } from "../../contracts/completion.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -157,7 +158,8 @@ export class WeChatChannel {
       : cfg.paired
         ? "paused"
         : "disconnected";
-    if (cfg.expired) this.view.error = "微信会话已失效，请重新扫码连接。";
+    if (cfg.expired)
+      this.view.error = this.runtime.tr("微信会话已失效，请重新扫码连接。");
     if (cfg.enabled && !cfg.expired)
       try {
         await this.resume();
@@ -165,13 +167,16 @@ export class WeChatChannel {
         this.view = {
           ...this.view,
           state: "error",
-          error: "无法恢复微信连接，请重新扫码；没有重放未确认的操作。",
+          error: this.runtime.tr(
+            "无法恢复微信连接，请重新扫码；没有重放未确认的操作。",
+          ),
         };
       }
   }
   private async mutate<T>(fn: () => Promise<T>) {
-    if (this.closed) throw Error("服务正在退出");
-    if (this.mutating) throw Error("微信连接正在更新，请稍后重试");
+    if (this.closed) throw Error(this.runtime.tr("服务正在退出"));
+    if (this.mutating)
+      throw Error(this.runtime.tr("微信连接正在更新，请稍后重试"));
     this.mutating = true;
     try {
       return await fn();
@@ -201,7 +206,7 @@ export class WeChatChannel {
       mkdirSync(cwd, { recursive: true, mode: 0o700 });
     const canonical = realpathSync(cwd);
     if (!statSync(canonical).isDirectory())
-      throw Error("请选择有效的微信任务工作目录");
+      throw Error(this.runtime.tr("请选择有效的微信任务工作目录"));
     return canonical;
   }
   async configure(
@@ -212,7 +217,7 @@ export class WeChatChannel {
     return this.mutate(async () => {
       const canonical = this.workingDirectory(cwd);
       const cfg = this.config();
-      if (!cfg) throw Error("请先扫码连接微信");
+      if (!cfg) throw Error(this.runtime.tr("请先扫码连接微信"));
       const next = {
         ...cfg,
         cwd: canonical,
@@ -277,7 +282,7 @@ export class WeChatChannel {
           qr.qrcode.length > 8192 ||
           qr.qrcode_img_content.length > 16384
         )
-          throw Error("微信未返回可用二维码");
+          throw Error(this.runtime.tr("微信未返回可用二维码"));
         const expires = Date.now() + 300000;
         this.view = {
           ...this.view,
@@ -296,7 +301,7 @@ export class WeChatChannel {
               ...this.view,
               state: "error",
               qrContent: undefined,
-              error: "微信登录失败，请刷新二维码重试。",
+              error: this.runtime.tr("微信登录失败，请刷新二维码重试。"),
             };
         });
         return this.status();
@@ -304,7 +309,7 @@ export class WeChatChannel {
         this.view = {
           ...this.view,
           state: "error",
-          error: "无法获取微信二维码，请检查网络后重试。",
+          error: this.runtime.tr("无法获取微信二维码，请检查网络后重试。"),
         };
         throw Error(this.view.error);
       }
@@ -312,7 +317,7 @@ export class WeChatChannel {
   }
   verify(code: string) {
     if (this.view.state !== "need_code" || !/^\d{4,8}$/.test(code))
-      throw Error("请填写手机显示的 4 至 8 位验证码");
+      throw Error(this.runtime.tr("请填写手机显示的 4 至 8 位验证码"));
     this.code = code;
     return this.status();
   }
@@ -339,7 +344,7 @@ export class WeChatChannel {
             (v) => typeof v === "string" && v.length > 0 && v.length < 16384,
           )
         )
-          throw Error("微信登录结果不完整");
+          throw Error(this.runtime.tr("微信登录结果不完整"));
         const login: WeChatLogin = {
           binding: cfg.binding,
           token: data.bot_token,
@@ -373,13 +378,13 @@ export class WeChatChannel {
           ...this.view,
           state: "expired",
           qrContent: undefined,
-          error: "二维码已过期或验证被锁定，请重新扫码。",
+          error: this.runtime.tr("二维码已过期或验证被锁定，请重新扫码。"),
         };
         return;
       }
       if (data.status === "scaned_but_redirect") {
         if (typeof data.redirect_host !== "string")
-          throw Error("微信返回的跳转地址不完整");
+          throw Error(this.runtime.tr("微信返回的跳转地址不完整"));
         base = wechatBase(
           data.redirect_host.startsWith("https://")
             ? data.redirect_host
@@ -393,7 +398,9 @@ export class WeChatChannel {
           ...this.view,
           state: "error",
           qrContent: undefined,
-          error: "该机器人已绑定，请在微信解除旧绑定后重新连接。",
+          error: this.runtime.tr(
+            "该机器人已绑定，请在微信解除旧绑定后重新连接。",
+          ),
         };
         return;
       }
@@ -404,30 +411,40 @@ export class WeChatChannel {
         ...this.view,
         state: "expired",
         qrContent: undefined,
-        error: "二维码已过期，请重新获取。",
+        error: this.runtime.tr("二维码已过期，请重新获取。"),
       };
   }
   async testMessage() {
     return this.mutate(async () => {
       const cfg = this.config();
-      if (!cfg?.paired || cfg.expired) throw Error("请先扫码连接微信");
-      if (!cfg.enabled) throw Error("请先恢复微信连接，再测试回传消息");
+      if (!cfg?.paired || cfg.expired)
+        throw Error(this.runtime.tr("请先扫码连接微信"));
+      if (!cfg.enabled)
+        throw Error(this.runtime.tr("请先恢复微信连接，再测试回传消息"));
       if (!this.login || this.view.state !== "connected")
-        throw Error("正在等待微信连接，请连接成功后再测试");
+        throw Error(this.runtime.tr("正在等待微信连接，请连接成功后再测试"));
       if (!this.login.contextToken)
-        throw Error("请先在微信发送 /帮助，再测试回传消息");
+        throw Error(this.runtime.tr("请先在微信发送 /帮助，再测试回传消息"));
       const event = "test:" + randomUUID();
       const id = this.deliveryId(event);
       this.queue(
-        "ACD 测试消息：微信回传链路已提交。请确认手机实际收到。",
+        this.runtime.tr(
+          "ACD 测试消息：微信回传链路已提交。请确认手机实际收到。",
+        ),
         event,
       );
       await this.flush();
       const delivery = this.runtime.store.get<Delivery>("wechat-outbox", id);
       if (delivery?.state !== "submitted")
-        throw Error("测试消息提交结果待核对，请检查手机；未自动重发。");
+        throw Error(
+          this.runtime.tr("测试消息提交结果待核对，请检查手机；未自动重发。"),
+        );
       if (!delivery.receipt?.hasServerMessageId)
-        throw Error("微信已接受测试请求，但未返回消息编号，手机送达待核对。");
+        throw Error(
+          this.runtime.tr(
+            "微信已接受测试请求，但未返回消息编号，手机送达待核对。",
+          ),
+        );
       return this.status();
     });
   }
@@ -435,7 +452,8 @@ export class WeChatChannel {
     return this.mutate(async () => {
       await this.cancel();
       const cfg = this.config();
-      if (!cfg?.paired || cfg.expired) throw Error("请先扫码连接微信");
+      if (!cfg?.paired || cfg.expired)
+        throw Error(this.runtime.tr("请先扫码连接微信"));
       const login = await this.vault.get();
       if (
         !login?.token ||
@@ -443,7 +461,7 @@ export class WeChatChannel {
         !login.botId ||
         (login.binding !== undefined && login.binding !== cfg.binding)
       )
-        throw Error("微信登录凭证不可用，请重新扫码");
+        throw Error(this.runtime.tr("微信登录凭证不可用，请重新扫码"));
       wechatBase(login.baseUrl);
       this.login = login;
       this.runtime.store.put("settings", "wechat", { ...cfg, enabled: true });
@@ -593,8 +611,19 @@ export class WeChatChannel {
         ].includes(task.status)
       )
         this.queue(
-          `任务 ${task.id}\n${task.title} · ${labels[task.status]}\n${task.progress}${task.status === "review" && task.result ? "\n结果摘要：" + task.result.slice(0, 1000) : ""}` +
-            this.questions(task.id),
+          this.runtime.tr("任务 {v0}\n{v1} · {v2}\n{v3}{v4}", {
+            v0: task.id,
+            v1: task.title,
+            v2: this.runtime.tr(labels[task.status]),
+            v3: task.progress,
+            v4:
+              (task.status === "review" ||
+                (task.status === "completed" &&
+                  task.responseKind === "answer")) &&
+              task.result
+                ? this.runtime.tr("\n结果摘要：") + task.result.slice(0, 1000)
+                : "",
+          }) + this.questions(task.id),
           "task:" + task.id + ":" + key,
           origin ? "direct" : "desktop",
           origin,
@@ -612,7 +641,10 @@ export class WeChatChannel {
       )
         continue;
       this.queue(
-        `需要补充信息\n${q.text}\n/回答 ${q.id} 你的说明`,
+        this.runtime.tr("需要补充信息\n{v0}\n/回答 {v1} 你的说明", {
+          v0: q.text,
+          v1: q.id,
+        }),
         event,
         origin ? "direct" : "desktop",
         origin,
@@ -640,6 +672,19 @@ export class WeChatChannel {
     }
     void this.flush();
   }
+  private reportText(message: import("../../contracts/index.js").Message) {
+    const task = message.taskIds[0]
+      ? this.runtime.store.get<Task>("tasks", message.taskIds[0])
+      : undefined;
+    const agent =
+      task && this.runtime.store.get<{ name: string }>("agents", task.agentId);
+    return resultText(
+      message,
+      task,
+      agent?.name,
+      this.runtime.preferences().locale,
+    );
+  }
   private observeReports(cfg: Config) {
     const store = this.runtime.store;
     const cursor = store.get<{ count: number }>(
@@ -656,7 +701,7 @@ export class WeChatChannel {
         const event = "completion:" + m.completion!.id;
         const key = this.deliveryId(event);
         if (store.get("wechat-observed", key)) continue;
-        this.queue(m.text, event, "report", undefined, m.id);
+        this.queue(this.reportText(m), event, "report", undefined, m.id);
         store.put("wechat-observed", key, { seen: true });
       }
       store.put("wechat-report-cursors", cfg.binding, { count });
@@ -666,9 +711,21 @@ export class WeChatChannel {
     return this.runtime
       .snapshot()
       .questions.filter((q) => !q.resolved && (!taskId || q.taskId === taskId))
-      .map(
-        (q) =>
-          `\n问题 ${q.id}：${q.text}\n回答：/回答 ${q.id} ${q.choices.length ? q.choices.map((choice) => (q.choiceLabels?.[choice] ? `${choice}（${q.choiceLabels[choice]}）` : choice)).join(" | ") : "你的说明"}`,
+      .map((q) =>
+        this.runtime.tr("\n问题 {v0}：{v1}\n回答：/回答 {v2} {v3}", {
+          v0: q.id,
+          v1: q.text,
+          v2: q.id,
+          v3: q.choices.length
+            ? q.choices
+                .map((choice) =>
+                  q.choiceLabels?.[choice]
+                    ? `${choice}（${q.choiceLabels[choice]}）`
+                    : choice,
+                )
+                .join(" | ")
+            : "你的说明",
+        }),
       )
       .join("\n");
   }
@@ -714,7 +771,7 @@ export class WeChatChannel {
       text:
         Array.from(text).length > 1900
           ? Array.from(text).slice(0, 1800).join("") +
-            "\n…内容较长，请在桌面查看完整记录。"
+            this.runtime.tr("\n…内容较长，请在桌面查看完整记录。")
           : text,
       state: "pending",
       createdAt: new Date().toISOString(),
@@ -818,8 +875,9 @@ export class WeChatChannel {
           this.expire(controller);
           return;
         }
-        this.view.error =
-          "部分反馈未能确认是否提交，请在微信发送 /状态 核对；没有自动重发。";
+        this.view.error = this.runtime.tr(
+          "部分反馈未能确认是否提交，请在微信发送 /状态 核对；没有自动重发。",
+        );
       }
     }
   }
@@ -832,7 +890,7 @@ export class WeChatChannel {
         enabled: false,
       });
     this.view.state = "expired";
-    this.view.error = "微信会话已失效，请重新扫码连接。";
+    this.view.error = this.runtime.tr("微信会话已失效，请重新扫码连接。");
     controller.abort();
   }
   private async poll(controller: AbortController) {
@@ -859,15 +917,17 @@ export class WeChatChannel {
         );
         if (controller.signal.aborted) return;
         const messages = data.msgs ?? [];
-        if (!Array.isArray(messages)) throw Error("微信消息列表格式无效");
+        if (!Array.isArray(messages))
+          throw Error(this.runtime.tr("微信消息列表格式无效"));
         if (messages.length > 100) {
           this.runtime.store.put("settings", "wechat", {
             ...this.config()!,
             enabled: false,
           });
           this.view.state = "error";
-          this.view.error =
-            "单批微信消息超过 100 条，已暂停接入，本批未执行。请在桌面核对后重新连接。";
+          this.view.error = this.runtime.tr(
+            "单批微信消息超过 100 条，已暂停接入，本批未执行。请在桌面核对后重新连接。",
+          );
           return;
         }
         this.view.state = "connected";
@@ -897,8 +957,9 @@ export class WeChatChannel {
           return;
         }
         this.view.state = "connecting";
-        this.view.error =
-          "微信连接中断，正在重连；已接收的任务继续在本机执行。";
+        this.view.error = this.runtime.tr(
+          "微信连接中断，正在重连；已接收的任务继续在本机执行。",
+        );
         await pause(
           Math.min(30000, 1000 * 2 ** Math.min(failures++, 5)),
           controller.signal,
@@ -914,19 +975,19 @@ export class WeChatChannel {
       this.view.lastIgnoredReason = reason;
     };
     if (!msg || msg.message_type !== 1 || msg.message_state === 1) {
-      ignored("不是已完成的用户消息");
+      ignored(this.runtime.tr("不是已完成的用户消息"));
       return;
     }
     if (msg.group_id) {
-      ignored("当前仅支持绑定者私聊");
+      ignored(this.runtime.tr("当前仅支持绑定者私聊"));
       return;
     }
     if (msg.from_user_id !== login.ownerId) {
-      ignored("消息发送者与扫码绑定者不一致");
+      ignored(this.runtime.tr("消息发送者与扫码绑定者不一致"));
       return;
     }
     if (msg.to_user_id && msg.to_user_id !== login.botId) {
-      ignored("消息接收者与当前绑定不一致");
+      ignored(this.runtime.tr("消息接收者与当前绑定不一致"));
       return;
     }
     const remoteId = [msg.message_id, msg.client_id, msg.seq].find((value) =>
@@ -937,7 +998,7 @@ export class WeChatChannel {
           value.length <= 256,
     );
     if (remoteId === undefined) {
-      ignored("消息没有可用编号");
+      ignored(this.runtime.tr("消息没有可用编号"));
       return;
     }
     const id = this.deliveryId("in:" + hash(String(remoteId)));
@@ -972,30 +1033,35 @@ export class WeChatChannel {
     let response: string;
     let reportMessageId: string | undefined;
     try {
-      if (!text) response = "目前只支持文字指令。发送 /帮助 查看用法。";
-      else if (text.length > 20000) response = "消息过长，请拆成几条文字消息。";
+      if (!text)
+        response = this.runtime.tr("目前只支持文字指令。发送 /帮助 查看用法。");
+      else if (text.length > 20000)
+        response = this.runtime.tr("消息过长，请拆成几条文字消息。");
       else if (text === "/帮助")
-        response =
-          "直接发文字交代任务，或补充已有要求。\n/状态 查看任务和待处理问题\n/报告 查看最近完成报告与建议\n/停止 <完整任务编号>\n/完成 <完整任务编号>\n/回答 <完整问题编号> <选项或说明>\n新任务只使用本机设置的微信工作目录。";
+        response = this.runtime.tr(
+          "直接发文字交代任务，或补充已有要求。\n/状态 查看任务和待处理问题\n/报告 查看最近完成报告与建议\n/停止 <完整任务编号>\n/完成 <完整任务编号>\n/回答 <完整问题编号> <选项或说明>\n新任务只使用本机设置的微信工作目录。",
+        );
       else if (text === "/状态" || text === "/任务") response = this.summary();
       else if (text === "/报告") {
         const report = this.runtime.store.latestReadyReport();
         reportMessageId = report?.id;
-        response =
-          report?.text || "暂时没有完成报告，发送 /状态 查看执行进展。";
+        response = report
+          ? this.reportText(report)
+          : this.runtime.tr("暂时没有完成报告，发送 /状态 查看执行进展。");
       } else if (text.startsWith("/停止 ")) {
         await this.runtime.stop(text.slice(4).trim());
-        response = "停止请求已处理。\n" + this.summary();
+        response = this.runtime.tr("停止请求已处理。\n") + this.summary();
       } else if (text.startsWith("/完成 ")) {
         this.runtime.accept(text.slice(4).trim());
-        response = "已确认交付完成。";
+        response = this.runtime.tr("已确认交付完成。");
       } else if (text.startsWith("/回答 ")) {
         const match = text.match(/^\/回答\s+(\S+)\s+([\s\S]+)$/);
-        if (!match) throw Error("格式：/回答 <问题编号> <选项或说明>");
+        if (!match)
+          throw Error(this.runtime.tr("格式：/回答 <问题编号> <选项或说明>"));
         await this.runtime.answer(match[1], match[2].trim());
-        response = "回答已提交。";
+        response = this.runtime.tr("回答已提交。");
       } else if (text.startsWith("/"))
-        response = "未识别这个指令，请发送 /帮助 查看用法。";
+        response = this.runtime.tr("未识别这个指令，请发送 /帮助 查看用法。");
       else {
         const uuid = hash(id).slice(0, 32).split("");
         uuid[12] = "4";
@@ -1010,11 +1076,12 @@ export class WeChatChannel {
         origin = receiptId;
         this.rememberContext(origin);
         this.runtime.receive(text, cfg.cwd, undefined, receiptId);
-        response = "收到，我来处理。";
+        response = this.runtime.tr("收到，我来处理。");
       }
     } catch {
-      response =
-        "这次操作未能确认完成，请发送 /状态 核对，或在桌面总控查看原因。不要重复授权不确定的操作。";
+      response = this.runtime.tr(
+        "这次操作未能确认完成，请发送 /状态 核对，或在桌面总控查看原因。不要重复授权不确定的操作。",
+      );
     }
     this.rememberContext(origin);
     this.queue(
@@ -1046,7 +1113,10 @@ export class WeChatChannel {
     const uncertain = this.status().uncertainOperations;
     return (
       (uncertain
-        ? `有 ${uncertain} 条此前操作的结果待核对，没有自动重放。请在桌面检查任务。\n\n`
+        ? this.runtime.tr(
+            "有 {v0} 条此前操作的结果待核对，没有自动重放。请在桌面检查任务。\n\n",
+            { v0: uncertain },
+          )
         : "") +
       this.questions() +
       "\n" +
@@ -1054,10 +1124,11 @@ export class WeChatChannel {
         ? s.tasks
             .slice(-10)
             .map(
-              (t) => `${t.id}\n${t.title} · ${labels[t.status]}\n${t.progress}`,
+              (t) =>
+                `${t.id}\n${t.title} · ${this.runtime.tr(labels[t.status])}\n${t.progress}`,
             )
             .join("\n\n")
-        : "暂无任务。")
+        : this.runtime.tr("暂无任务。"))
     );
   }
   async close() {

@@ -1,3 +1,7 @@
+export type Locale = "zh-CN" | "en";
+export interface AppPreferences {
+  locale: Locale;
+}
 export type {
   Schedule,
   ScheduleInput,
@@ -30,6 +34,9 @@ export interface AllocationRequest {
   requiredCapabilities?: AgentCapability[];
 }
 export interface AllocationSettings {
+  globalAgentOrder?: string[];
+  projectAgentOrders?: Record<string, string[]>;
+  // Compatibility projection for clients that display the first preference.
   globalAgentId: string | null;
   projectAgentIds: Record<string, string>;
 }
@@ -66,6 +73,9 @@ export interface AgentConnection {
   };
 }
 export interface Task {
+  pendingTurnText?: string;
+  followupQuestionId?: string;
+  responseKind?: "answer" | "work";
   allocation?: AllocationDecision;
   scheduleId?: string;
   scheduleRunId?: string;
@@ -97,6 +107,7 @@ export interface CompletionSummary {
   suggestions: string[];
 }
 export interface CompletionReport extends Partial<CompletionSummary> {
+  taskRevision?: number;
   id: string;
   title: string;
   status: "pending" | "ready" | "failed" | "withheld";
@@ -107,6 +118,9 @@ export interface CompletionReport extends Partial<CompletionSummary> {
   error?: string;
 }
 export interface Message {
+  displayText?: string;
+  inReplyToQuestionId?: string;
+  taskOutcome?: { revision: number };
   replyTo?: string;
   completion?: CompletionReport;
   id: string;
@@ -120,6 +134,11 @@ export interface Message {
   request?: { cwd: string; targetTaskId?: string } & AllocationRequest;
 }
 export interface Question {
+  followup?: boolean;
+  answerText?: string;
+  answeredBy?: "user" | "supervisor";
+  answerBasis?: string;
+  answerDelivery?: "queued" | "submitted" | "not_submitted" | "unknown";
   sourceMessageId?: string;
   id: string;
   taskId?: string;
@@ -176,6 +195,7 @@ export interface AgentObservation {
   sessions: NativeSession[];
 }
 export interface Snapshot {
+  preferences?: AppPreferences;
   allocationSettings?: AllocationSettings;
   schedules?: import("./schedules.js").Schedule[];
   environment?: "live" | "test";
@@ -232,6 +252,7 @@ export type Action =
   | { type: "schedule_status"; scheduleIds: string[] }
   | {
       type: "create";
+      responseKind?: "answer" | "work";
       requiredCapabilities?: AgentCapability[];
       requestedAgentId?: string;
       title: string;

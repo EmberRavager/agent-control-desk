@@ -1,3 +1,5 @@
+import { translate } from "../i18n/index.cjs";
+import type { Locale } from "../contracts/index.js";
 import { constants } from "node:fs";
 import { access, open, readdir, realpath, stat } from "node:fs/promises";
 import {
@@ -361,4 +363,35 @@ export async function readSkill(
     throw Error("技能路径已变更或超出扫描范围，请重新扫描");
   const { content, size } = await readBounded(actual, MAX_PREVIEW_BYTES);
   return { skill: record, content, truncated: size > MAX_PREVIEW_BYTES };
+}
+
+/** Render platform metadata only; skill names, descriptions and file content stay verbatim. */
+export function localizeSkillCatalog(
+  catalog: SkillCatalog,
+  locale: Locale,
+): SkillCatalog {
+  const tr = (source: string) => translate(locale, source);
+  const warning = (value: string) => {
+    for (const prefix of [
+      "已跳过技能目录之外的链接：",
+      "已跳过技能目录之外的文件链接：",
+      "技能目录无法读取：",
+    ])
+      if (value.startsWith(prefix))
+        return translate(locale, prefix + "{path}", {
+          path: value.slice(prefix.length),
+        });
+    return tr(value);
+  };
+  const source = (value: SkillSource) => ({ ...value, label: tr(value.label) });
+  return {
+    ...catalog,
+    roots: catalog.roots.map(source),
+    warnings: catalog.warnings.map(warning),
+    skills: catalog.skills.map((skill) => ({
+      ...skill,
+      warnings: skill.warnings.map(warning),
+      sources: skill.sources.map(source),
+    })),
+  };
 }

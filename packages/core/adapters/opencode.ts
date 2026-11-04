@@ -1,3 +1,5 @@
+import { translate } from "../../i18n/index.cjs";
+import type { Locale } from "../../contracts/index.js";
 import { Readable, Writable } from "node:stream";
 import type * as ACP from "@agentclientprotocol/sdk";
 import type {
@@ -21,8 +23,11 @@ export class OpenCodeAdapter implements AgentAdapter {
     private readonly launcher?: Launcher,
     private readonly timeoutMs = 30000,
     private readonly stopTimeoutMs = 5000,
+    private readonly locale: () => Locale = () => "zh-CN",
   ) {}
   async start({ task, agent, onEvent }: StartRun): Promise<RunHandle> {
+    const tr = (source: string, values?: Record<string, string | number>) =>
+      translate(this.locale(), source, values);
     const acp = await import("@agentclientprotocol/sdk");
     const proc = launch(
       this.launcher?.executable || agent.executable,
@@ -62,10 +67,10 @@ export class OpenCodeAdapter implements AgentAdapter {
       dispose();
     }
     const labels: Record<string, string> = {
-      allow_once: "允许这次操作",
-      allow_always: "始终允许此操作",
-      reject_once: "拒绝这次操作",
-      reject_always: "始终拒绝此操作",
+      allow_once: tr("允许这次操作"),
+      allow_always: tr("始终允许此操作"),
+      reject_once: tr("拒绝这次操作"),
+      reject_always: tr("始终拒绝此操作"),
     };
     const client = acp
       .client({ name: "agent-control-desk" })
@@ -87,7 +92,7 @@ export class OpenCodeAdapter implements AgentAdapter {
         ) {
           finish(
             "failed",
-            "OpenCode 返回了无法处理的授权请求，请在原生端核对。",
+            tr("OpenCode 返回了无法处理的授权请求，请在原生端核对。"),
           );
           return { outcome: { outcome: "cancelled" as const } };
         }
@@ -100,7 +105,7 @@ export class OpenCodeAdapter implements AgentAdapter {
             params.options.filter((item) => item.kind === option.kind).length >
             1;
           choiceLabels[id] =
-            (labels[option.kind] || "选择") +
+            (labels[option.kind] || tr("选择")) +
             (repeated ? " · " + publicSnippet(option.name, 100) : "");
         }
         return new Promise<ACP.RequestPermissionResponse>((resolve) => {
@@ -117,7 +122,7 @@ export class OpenCodeAdapter implements AgentAdapter {
                 emit({
                   type: "question_resolved",
                   requestId,
-                  text: "OpenCode 授权请求已结束，等待执行反馈。",
+                  text: tr("OpenCode 授权请求已结束，等待执行反馈。"),
                 });
             },
           };
@@ -127,7 +132,7 @@ export class OpenCodeAdapter implements AgentAdapter {
             type: "question",
             requestId,
             text: publicSnippet(
-              params.toolCall.title || "OpenCode 请求工具授权",
+              params.toolCall.title || tr("OpenCode 请求工具授权"),
               2000,
             ),
             choices: [...choices.keys()],
@@ -152,26 +157,32 @@ export class OpenCodeAdapter implements AgentAdapter {
         else if (update.sessionUpdate === "tool_call")
           emit({
             type: "progress",
-            text: publicSnippet(update.title || "OpenCode 正在调用工具", 200),
+            text: publicSnippet(
+              update.title || tr("OpenCode 正在调用工具"),
+              200,
+            ),
           });
         else if (update.sessionUpdate === "tool_call_update")
           emit({
             type: "progress",
             text:
               update.status === "completed"
-                ? "OpenCode 工具调用结束，等待后续反馈。"
-                : "OpenCode 正在处理工具调用。",
+                ? tr("OpenCode 工具调用结束，等待后续反馈。")
+                : tr("OpenCode 正在处理工具调用。"),
           });
       });
     proc.stderr.resume();
     proc.on("error", () =>
-      finish("failed", "OpenCode 程序无法启动，请检查安装与执行权限。"),
+      finish("failed", tr("OpenCode 程序无法启动，请检查安装与执行权限。")),
     );
     proc.stdin.on("error", () =>
-      finish("failed", "OpenCode 输入连接中断，执行状态待核对。"),
+      finish("failed", tr("OpenCode 输入连接中断，执行状态待核对。")),
     );
     proc.on("close", () =>
-      finish("failed", "OpenCode 已断开且未返回明确结束事件，请核对执行结果。"),
+      finish(
+        "failed",
+        tr("OpenCode 已断开且未返回明确结束事件，请核对执行结果。"),
+      ),
     );
     connection = client.connect(
       acp.ndJsonStream(
@@ -182,15 +193,15 @@ export class OpenCodeAdapter implements AgentAdapter {
     );
     void connection.closed.then(() => {
       if (!terminal && !disposed)
-        finish("failed", "OpenCode 协议连接已关闭，执行状态待核对。");
+        finish("failed", tr("OpenCode 协议连接已关闭，执行状态待核对。"));
     });
     const handle: RunHandle = {
       async steer() {
-        throw Error("OpenCode ACP 不支持中途追加；请停止后显式续接。");
+        throw Error(tr("OpenCode ACP 不支持中途追加；请停止后显式续接。"));
       },
       stop: async () => {
         if (terminal || disposed)
-          throw Error("OpenCode 没有可确认的活动连接。");
+          throw Error(tr("OpenCode 没有可确认的活动连接。"));
         for (const permission of [...permissions.values()])
           permission.finish({ outcome: { outcome: "cancelled" } }, true);
         try {
@@ -199,7 +210,7 @@ export class OpenCodeAdapter implements AgentAdapter {
           });
         } catch {
           if (!terminal)
-            finish("failed", "OpenCode 停止请求未确认，请核对原生执行。");
+            finish("failed", tr("OpenCode 停止请求未确认，请核对原生执行。"));
           return;
         }
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -217,7 +228,7 @@ export class OpenCodeAdapter implements AgentAdapter {
         } catch {
           finish(
             "failed",
-            "OpenCode 未在时限内确认停止，请人工核对，已有修改保留。",
+            tr("OpenCode 未在时限内确认停止，请人工核对，已有修改保留。"),
           );
         } finally {
           clearTimeout(timer);
@@ -227,7 +238,7 @@ export class OpenCodeAdapter implements AgentAdapter {
         const permission = permissions.get(requestId),
           nativeId = permission?.choices.get(choice);
         if (!permission || nativeId === undefined || terminal || disposed)
-          throw Error("OpenCode 授权请求已失效或选项无效。");
+          throw Error(tr("OpenCode 授权请求已失效或选项无效。"));
         permission.finish({
           outcome: { outcome: "selected", optionId: nativeId },
         });
@@ -281,22 +292,25 @@ export class OpenCodeAdapter implements AgentAdapter {
         .then((result) => {
           if (result.stopReason === "end_turn") finish("completed");
           else if (result.stopReason === "cancelled")
-            finish("cancelled", "OpenCode 已确认停止，已有修改保留。");
+            finish("cancelled", tr("OpenCode 已确认停止，已有修改保留。"));
           else
             finish(
               "failed",
-              "OpenCode 未正常结束本轮，可能有部分结果，请核对后再继续。",
+              tr("OpenCode 未正常结束本轮，可能有部分结果，请核对后再继续。"),
             );
         })
         .catch(() =>
-          finish("failed", "OpenCode 执行连接或模型请求失败，请在原生端核对。"),
+          finish(
+            "failed",
+            tr("OpenCode 执行连接或模型请求失败，请在原生端核对。"),
+          ),
         );
     } catch {
       finish(
         "failed",
         task.sessionId
-          ? "OpenCode 无法续接原会话，请检查原生版本、登录和会话状态。"
-          : "OpenCode 未能建立任务会话，请检查原生登录与模型配置。",
+          ? tr("OpenCode 无法续接原会话，请检查原生版本、登录和会话状态。")
+          : tr("OpenCode 未能建立任务会话，请检查原生登录与模型配置。"),
       );
     }
     return handle;

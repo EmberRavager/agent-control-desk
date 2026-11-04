@@ -1,3 +1,4 @@
+const { translate, normalizeLocale } = require("../../packages/i18n/index.cjs");
 const { randomUUID } = require("node:crypto");
 
 // Main-process only. Native notifications consume persisted claims, never task actions.
@@ -17,11 +18,15 @@ class DesktopNotifier {
     this.badge = badge;
     this.backgroundAvailable = backgroundAvailable;
     this.latest = null;
+    this.locale = "zh-CN";
     this.timer = null;
     this.busy = false;
     this.active = new Set();
     this.lastResult = "unverified";
     this.error = undefined;
+  }
+  t(source, values) {
+    return translate(this.locale, source, values);
   }
   status() {
     return {
@@ -30,10 +35,12 @@ class DesktopNotifier {
       canOpenSettings:
         process.platform === "darwin" || process.platform === "win32",
       lastResult: this.lastResult,
-      ...(this.error ? { error: this.error } : {}),
+      ...(this.error ? { error: this.t(this.error) } : {}),
     };
   }
   update(snapshot) {
+    if (snapshot.preferences)
+      this.locale = normalizeLocale(snapshot.preferences.locale);
     this.latest = snapshot.notifications;
     this.badge?.(this.latest?.unread || 0);
     if (!this.latest?.items.some((n) => n.desktop === "pending")) return;
@@ -100,15 +107,15 @@ class DesktopNotifier {
     const ids = notices.map((n) => n.id),
       one = notices.length === 1 ? notices[0] : null;
     const title = test
-      ? "ACD 测试提醒"
+      ? this.t("ACD 测试提醒")
       : one
         ? "ACD · " + one.title
-        : `ACD · ${notices.length} 条新进展`;
+        : this.t("ACD · {count} 条新进展", { count: notices.length });
     const body = test
-      ? "提醒链路已提交，请确认系统是否显示。"
+      ? this.t("提醒链路已提交，请确认系统是否显示。")
       : preferences.details && one
         ? one.body
-        : "点击查看任务结果或需要你处理的事项。";
+        : this.t("点击查看任务结果或需要你处理的事项。");
     return new Promise((resolve) => {
       let settled = false;
       const finish = async (result, detail) => {
@@ -177,7 +184,7 @@ class DesktopNotifier {
     });
   }
   async test() {
-    if (!this.status().supported) throw Error("当前系统不支持桌面通知");
+    if (!this.status().supported) throw Error(this.t("当前系统不支持桌面通知"));
     return this.show([], this.latest?.preferences || { sound: true }, true);
   }
   close() {

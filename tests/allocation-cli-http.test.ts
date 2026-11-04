@@ -97,6 +97,29 @@ test("CLI default settings and pinned sends reach the same local allocation runt
       ).stdout,
     );
     assert.equal(configured.projectAgentIds[directory], "fixture-claude");
+    const projectOrder = ["fixture-codex", "fixture-claude"];
+    const ranked = JSON.parse(
+      (
+        await run(
+          "agents",
+          "default",
+          ...projectOrder,
+          "--project",
+          directory,
+          "--json",
+        )
+      ).stdout,
+    );
+    assert.deepEqual(ranked.projectAgentOrders[directory], projectOrder);
+    const globalOrder = ["fixture-claude", "fixture-codex"];
+    await run("agents", "default", ...globalOrder);
+    const saved = JSON.parse((await run("agents", "default", "--json")).stdout);
+    assert.deepEqual(saved.globalAgentOrder, globalOrder);
+    assert.deepEqual(saved.projectAgentOrders[directory], projectOrder);
+    await assert.rejects(
+      run("agents", "default", "none", "fixture-codex"),
+      /用法/,
+    );
     const receipt = JSON.parse(
       (
         await run(
@@ -123,6 +146,8 @@ test("CLI default settings and pinned sends reach the same local allocation runt
         .stdout,
     );
     assert.deepEqual(cleared.projectAgentIds, {});
+    assert.deepEqual(cleared.projectAgentOrders ?? {}, {});
+    assert.deepEqual(cleared.globalAgentOrder, globalOrder);
   } finally {
     await app.close();
     rmSync(directory, { recursive: true, force: true });

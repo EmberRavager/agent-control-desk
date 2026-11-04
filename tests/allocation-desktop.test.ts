@@ -27,6 +27,37 @@ async function components() {
   );
   return module;
 }
+test("new messages expose allocation through one optional non-submitting control", async () => {
+  const { AllocationControls } = await components();
+  const html = renderToStaticMarkup(
+    React.createElement(AllocationControls, {
+      agents: [agent],
+      targetAgentId: "",
+      requiredCapabilities: [],
+      locked: false,
+      onAgentChange() {},
+      onCapabilitiesChange() {},
+    }),
+  );
+  const panel = html.match(/<[^<>]+\bpopover="auto"[^<>]*>/i);
+  assert.ok(
+    panel,
+    "advanced settings live in an initially closed native popover",
+  );
+  const outside = html.slice(0, panel.index);
+  const triggers = outside.match(/<button\b[^>]*>/g) || [];
+  assert.equal(triggers.length, 1);
+  const trigger = triggers[0];
+  assert.match(trigger, /type="button"/);
+  assert.match(trigger, /aria-label="[^"]*本次发送选项[^"]*"/);
+  assert.doesNotMatch(outside, /<select|<fieldset|必需能力/);
+  const target = trigger.match(/\bpopovertarget="([^"]+)"/i)?.[1];
+  assert.ok(target);
+  assert.ok(panel[0].includes('id="' + target + '"'));
+  const contents = html.slice(panel.index);
+  assert.match(contents, /<select/);
+  assert.match(contents, /必需能力/);
+});
 test("the composer keeps an unavailable selection visible instead of switching to automatic", async () => {
   const { AllocationControls } = await components();
   const html = renderToStaticMarkup(
@@ -48,7 +79,7 @@ test("the composer keeps an unavailable selection visible instead of switching t
   assert.doesNotMatch(html, /value="claude"/);
   assert.match(html, /执行中追加/);
 });
-test("task supplements and question answers disable allocation without claiming to reassign", async () => {
+test("task supplements and question answers omit inapplicable allocation controls", async () => {
   const { AllocationControls } = await components();
   const html = renderToStaticMarkup(
     React.createElement(AllocationControls, {
@@ -60,8 +91,7 @@ test("task supplements and question answers disable allocation without claiming 
       onCapabilitiesChange() {},
     }),
   );
-  assert.match(html, /disabled=""/);
-  assert.match(html, /沿用原任务执行者/);
+  assert.equal(html, "");
 });
 test("allocation details show the recorded reason and explicit protocol requirements", async () => {
   const { AllocationReason } = await components();

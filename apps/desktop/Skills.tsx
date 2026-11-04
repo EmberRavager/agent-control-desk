@@ -1,3 +1,8 @@
+import {
+  translate as translateMessage,
+  type Locale,
+} from "../../packages/i18n/index.cjs";
+import { useI18n } from "./i18n.js";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentKind,
@@ -57,8 +62,10 @@ function scopeName(skill: SkillRecord) {
   const project = skill.sources.some((source) => source.scope === "project");
   return global && project ? "全局 / 项目" : project ? "项目" : "全局";
 }
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "操作失败，请重试。";
+function errorMessage(error: unknown, locale: Locale) {
+  return error instanceof Error
+    ? error.message
+    : translateMessage(locale, "操作失败，请重试。");
 }
 
 function SkillDialog({
@@ -72,6 +79,7 @@ function SkillDialog({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     ref.current?.showModal();
@@ -90,7 +98,7 @@ function SkillDialog({
         <h2>{title}</h2>
         <button
           className="icon"
-          aria-label="关闭"
+          aria-label={t("关闭")}
           disabled={busy}
           onClick={onClose}
         >
@@ -103,6 +111,7 @@ function SkillDialog({
 }
 /** Local inventory. Associations describe discovery paths, not native activation. */
 export default function Skills(props: Props) {
+  const { t, locale, dateLocale } = useI18n();
   const api = useRef(props);
   api.current = props;
   const [catalog, setCatalog] = useState<SkillCatalog>(emptyCatalog);
@@ -117,6 +126,9 @@ export default function Skills(props: Props) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [translation, setTranslation] = useState<SkillTranslation | null>(null);
+  const [translationLocale, setTranslationLocale] = useState(locale);
+  const currentLocale = useRef(locale);
+  currentLocale.current = locale;
   const [translating, setTranslating] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const [translationError, setTranslationError] = useState("");
@@ -136,22 +148,29 @@ export default function Skills(props: Props) {
   const live = useRef(true);
   const scanVersion = useRef(0);
   const previewVersion = useRef(0);
+  const translationVersion = useRef(0);
   const selectedRef = useRef<string | null>(null);
 
   function resetTranslation() {
+    ++translationVersion.current;
     setTranslation(null);
     setTranslating(false);
     setShowTranslation(false);
     setTranslationError("");
   }
 
+  useEffect(() => {
+    resetTranslation();
+  }, [locale]);
+
   async function translate() {
-    if (translation) {
+    if (translation && translationLocale === locale) {
       setShowTranslation((show) => !show);
       return;
     }
     if (!detail || !selectedRef.current || translating) return;
     const version = previewVersion.current;
+    const languageVersion = translationVersion.current;
     const id = selectedRef.current;
     setTranslating(true);
     setTranslationError("");
@@ -161,14 +180,29 @@ export default function Skills(props: Props) {
         `/api/skills/${encodeURIComponent(id)}/translate`,
         {},
       )) as SkillTranslation;
-      if (!live.current || version !== previewVersion.current) return;
+      if (
+        !live.current ||
+        version !== previewVersion.current ||
+        languageVersion !== translationVersion.current ||
+        currentLocale.current !== locale
+      )
+        return;
+      setTranslationLocale(locale);
       setTranslation(value);
       setShowTranslation(true);
     } catch (failure) {
-      if (live.current && version === previewVersion.current)
-        setTranslationError(errorMessage(failure));
+      if (
+        live.current &&
+        version === previewVersion.current &&
+        languageVersion === translationVersion.current
+      )
+        setTranslationError(errorMessage(failure, locale));
     } finally {
-      if (live.current && version === previewVersion.current)
+      if (
+        live.current &&
+        version === previewVersion.current &&
+        languageVersion === translationVersion.current
+      )
         setTranslating(false);
     }
   }
@@ -190,7 +224,7 @@ export default function Skills(props: Props) {
       setDetail(value);
     } catch (failure) {
       if (live.current && version === previewVersion.current)
-        setDetailError(errorMessage(failure));
+        setDetailError(errorMessage(failure, locale));
     } finally {
       if (live.current && version === previewVersion.current)
         setDetailLoading(false);
@@ -234,7 +268,7 @@ export default function Skills(props: Props) {
       }
     } catch (failure) {
       if (live.current && version === scanVersion.current)
-        setError(errorMessage(failure));
+        setError(errorMessage(failure, locale));
     } finally {
       if (live.current && version === scanVersion.current) setScanning(false);
     }
@@ -260,7 +294,7 @@ export default function Skills(props: Props) {
       setDetail(null);
       void scan(path);
     } catch (failure) {
-      if (live.current) setError(errorMessage(failure));
+      if (live.current) setError(errorMessage(failure, locale));
     }
   }
   async function reveal() {
@@ -277,7 +311,7 @@ export default function Skills(props: Props) {
         selectedRef.current === id &&
         version === previewVersion.current
       )
-        setDetailError(errorMessage(failure));
+        setDetailError(errorMessage(failure, locale));
     } finally {
       if (live.current) setRevealing(false);
     }
@@ -316,7 +350,7 @@ export default function Skills(props: Props) {
       )) as SkillTrashEntry[];
       if (live.current) setTrash(entries);
     } catch (failure) {
-      if (live.current) setMutationError(errorMessage(failure));
+      if (live.current) setMutationError(errorMessage(failure, locale));
     } finally {
       if (live.current) setTrashLoading(false);
     }
@@ -340,7 +374,7 @@ export default function Skills(props: Props) {
       setIssuesOnly(false);
       await scan(project, createName.trim(), createRoot);
     } catch (failure) {
-      if (live.current) setMutationError(errorMessage(failure));
+      if (live.current) setMutationError(errorMessage(failure, locale));
     } finally {
       if (live.current) setMutationBusy(false);
     }
@@ -367,7 +401,7 @@ export default function Skills(props: Props) {
       setDeleteRecord(null);
       await scan(project);
     } catch (failure) {
-      if (live.current) setMutationError(errorMessage(failure));
+      if (live.current) setMutationError(errorMessage(failure, locale));
     } finally {
       if (live.current) setMutationBusy(false);
     }
@@ -386,7 +420,7 @@ export default function Skills(props: Props) {
       setTrash((items) => items.filter((item) => item.id !== entry.id));
       await scan(project);
     } catch (failure) {
-      if (live.current) setMutationError(errorMessage(failure));
+      if (live.current) setMutationError(errorMessage(failure, locale));
     } finally {
       if (live.current) setMutationBusy(false);
     }
@@ -414,18 +448,19 @@ export default function Skills(props: Props) {
   ];
   const shortProject = project.split(/[\\/]/).filter(Boolean).at(-1);
 
+  const visibleTranslation = showTranslation && translationLocale === locale;
   return (
-    <section className="skills-page" aria-label="技能管理">
+    <section className="skills-page" aria-label={t("技能管理")}>
       <header className="topbar skills-topbar">
         <div className="row">
           <button
             className="icon"
             onClick={props.onBack}
-            aria-label="返回总控对话"
+            aria-label={t("返回总控对话")}
           >
             <Glyph name="back" />
           </button>
-          <h1>技能（skill）</h1>
+          <h1>{t("技能（skill）")}</h1>
           <span className="skills-total">{catalog.skills.length}</span>
         </div>
         <div className="row skills-toolbar-actions">
@@ -434,36 +469,36 @@ export default function Skills(props: Props) {
             disabled={scanning || mutationBusy || !catalog.roots.length}
             onClick={openCreate}
           >
-            新建技能
+            {t("新建技能")}
           </button>
           <button
             className="button ghost"
             disabled={mutationBusy}
             onClick={() => void openTrash()}
           >
-            回收区
+            {t("回收区")}
           </button>
           <button
             className="button ghost skills-project"
             disabled={scanning}
             onClick={() => void chooseProject()}
-            title={project || "选择项目以扫描项目级技能"}
+            title={project || t("选择项目以扫描项目级技能")}
           >
             <Glyph name="folder" />
-            {shortProject || "选择项目"}
+            {shortProject || t("选择项目")}
           </button>
           <button
             className="button"
             disabled={scanning}
             onClick={() => void scan(project)}
           >
-            {scanning ? "扫描中…" : "重新扫描"}
+            {scanning ? t("扫描中…") : t("重新扫描")}
           </button>
         </div>
       </header>
       <div className="skills-context">
-        <span>本地技能目录</span>
-        <span>已发现 ≠ 已启用</span>
+        <span>{t("本地技能目录")}</span>
+        <span>{t("已发现 ≠ 已启用")}</span>
       </div>
       {error && (
         <div className="skills-error" role="alert">
@@ -473,13 +508,15 @@ export default function Skills(props: Props) {
             disabled={scanning}
             onClick={() => void scan(project)}
           >
-            重试
+            {t("重试")}
           </button>
         </div>
       )}
       {catalog.warnings.length > 0 && (
         <details className="skills-scan-warning">
-          <summary>扫描提示 · {catalog.warnings.length}</summary>
+          <summary>
+            {t("扫描提示 · {count}", { count: catalog.warnings.length })}
+          </summary>
           {catalog.warnings.map((warning, index) => (
             <p key={index}>{warning}</p>
           ))}
@@ -491,18 +528,18 @@ export default function Skills(props: Props) {
             <Glyph name="search" />
             <input
               type="search"
-              aria-label="搜索技能"
-              placeholder="搜索名称、用途或路径"
+              aria-label={t("搜索技能")}
+              placeholder={t("搜索名称、用途或路径")}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
-          <div className="skills-filters" aria-label="筛选技能范围">
+          <div className="skills-filters" aria-label={t("筛选技能范围")}>
             {(
               [
-                ["all", "全部"],
-                ["global", "全局"],
-                ["project", "项目"],
+                ["all", t("全部")],
+                ["global", t("全局")],
+                ["project", t("项目")],
               ] as const
             ).map(([value, label]) => (
               <button
@@ -519,31 +556,31 @@ export default function Skills(props: Props) {
                 aria-pressed={issuesOnly}
                 onClick={() => setIssuesOnly((value) => !value)}
               >
-                待检查 {issueCount}
+                {t("待检查 {count}", { count: issueCount })}
               </button>
             )}
           </div>
           <div
             className="skills-list"
-            aria-label="本地技能列表"
+            aria-label={t("本地技能列表")}
             aria-busy={scanning}
           >
             {scanning && catalog.skills.length === 0 ? (
               <p className="skills-empty" role="status">
-                正在扫描本地技能…
+                {t("正在扫描本地技能…")}
               </p>
             ) : filtered.length === 0 ? (
               <div className="skills-empty">
                 <Glyph name="skill" />
                 <p>
                   {catalog.skills.length
-                    ? "没有匹配的技能"
-                    : "暂未发现本地技能"}
+                    ? t("没有匹配的技能")
+                    : t("暂未发现本地技能")}
                 </p>
                 <small>
                   {catalog.skills.length
-                    ? "换个关键词或筛选条件试试。"
-                    : "可选择项目目录，再扫描已有的技能文件。"}
+                    ? t("换个关键词或筛选条件试试。")
+                    : t("可选择项目目录，再扫描已有的技能文件。")}
                 </small>
               </div>
             ) : (
@@ -558,10 +595,10 @@ export default function Skills(props: Props) {
                 >
                   <span className="skills-item-heading">
                     <strong>{skill.name}</strong>
-                    <span className="skills-scope">{scopeName(skill)}</span>
+                    <span className="skills-scope">{t(scopeName(skill))}</span>
                   </span>
                   <span className="skills-description">
-                    {skill.description || "缺少用途说明"}
+                    {skill.description || t("缺少用途说明")}
                   </span>
                   <span className="skills-item-meta">
                     <span>
@@ -570,7 +607,7 @@ export default function Skills(props: Props) {
                       ].join(" / ")}
                     </span>
                     {(!skill.valid || skill.warnings.length > 0) && (
-                      <span className="skills-item-warning">待检查</span>
+                      <span className="skills-item-warning">{t("待检查")}</span>
                     )}
                   </span>
                 </button>
@@ -578,58 +615,58 @@ export default function Skills(props: Props) {
             )}
           </div>
           <div className="skills-list-footer">
-            {filtered.length} 项
+            {t("{count} 项", { count: filtered.length })}
             {scanning
-              ? " · 更新中"
+              ? t(" · 更新中")
               : catalog.scannedAt
-                ? " · 本地扫描结果"
+                ? t(" · 本地扫描结果")
                 : ""}
           </div>
         </div>
         <div
           className="skills-inspector"
-          aria-label="技能详情"
+          aria-label={t("技能详情")}
           aria-busy={detailLoading}
         >
           {!record ? (
             <div className="skills-detail-empty">
               <Glyph name="skill" />
-              <h2>查看已有的工作方法。</h2>
-              <p>选择一个技能，查看说明、来源和关联路径。</p>
+              <h2>{t("查看已有的工作方法。")}</h2>
+              <p>{t("选择一个技能，查看说明、来源和关联路径。")}</p>
             </div>
           ) : (
             <>
               <div className="skills-detail-header">
                 <div>
-                  <span className="skills-scope">{scopeName(record)}</span>
+                  <span className="skills-scope">{t(scopeName(record))}</span>
                   <h2>{record.name}</h2>
                 </div>
                 <div className="skills-detail-actions">
                   <button
                     className="button ghost"
                     disabled={!detail || detailLoading || translating}
-                    aria-pressed={showTranslation}
-                    title="使用总控模型翻译为中文，仅用于阅读"
+                    aria-pressed={visibleTranslation}
+                    title={t("使用总控模型翻译为当前界面语言，仅用于阅读")}
                     onClick={() => void translate()}
                   >
                     {translating
-                      ? "翻译中…"
-                      : showTranslation
-                        ? "原文"
-                        : "翻译"}
+                      ? t("翻译中…")
+                      : visibleTranslation
+                        ? t("原文")
+                        : t("翻译")}
                   </button>
                   <button
                     className="button ghost danger"
                     disabled={mutationBusy || scanning}
                     onClick={() => openDelete(record)}
                   >
-                    删除
+                    {t("删除")}
                   </button>
                   <button
                     className="icon"
                     disabled={revealing}
-                    title="在文件夹中显示"
-                    aria-label="在文件夹中显示此技能"
+                    title={t("在文件夹中显示")}
+                    aria-label={t("在文件夹中显示此技能")}
                     onClick={() => void reveal()}
                   >
                     <Glyph name="folder" />
@@ -637,9 +674,9 @@ export default function Skills(props: Props) {
                 </div>
               </div>
               <p className="skills-detail-description">
-                {(showTranslation
+                {(visibleTranslation
                   ? translation?.description
-                  : record.description) || "此技能缺少 description 元信息。"}
+                  : record.description) || t("此技能缺少 description 元信息。")}
               </p>
               {translationError && (
                 <div className="skills-error" role="alert">
@@ -647,38 +684,38 @@ export default function Skills(props: Props) {
                 </div>
               )}
               <div className="skills-associations">
-                <span>路径关联 · 加载未验证</span>
+                <span>{t("路径关联 · 加载未验证")}</span>
                 <div>
                   {linkedAgents.length ? (
                     linkedAgents.map((kind) => (
                       <span className="skills-agent" key={kind}>
-                        {names[kind]}
+                        {t(names[kind])}
                       </span>
                     ))
                   ) : (
-                    <span className="small">未识别关联 Agent</span>
+                    <span className="small">{t("未识别关联 Agent")}</span>
                   )}
                 </div>
               </div>
               {(record.warnings.length > 0 || !record.valid) && (
                 <div className="skills-record-warnings" role="status">
-                  <strong>需要检查</strong>
+                  <strong>{t("需要检查")}</strong>
                   {record.warnings.map((warning, index) => (
                     <p key={index}>{warning}</p>
                   ))}
                   {!record.valid && record.warnings.length === 0 && (
-                    <p>技能元信息不完整或格式无效。</p>
+                    <p>{t("技能元信息不完整或格式无效。")}</p>
                   )}
                 </div>
               )}
               <details className="skills-source-detail">
-                <summary>来源与文件位置</summary>
+                <summary>{t("来源与文件位置")}</summary>
                 <p className="skills-full-path">{record.path}</p>
                 {record.sources.map((source, index) => (
                   <div className="skills-source" key={index}>
                     <span>
                       {source.label} ·{" "}
-                      {source.scope === "global" ? "全局" : "项目"}
+                      {source.scope === "global" ? t("全局") : t("项目")}
                     </span>
                     <code>{source.rootPath}</code>
                   </div>
@@ -687,7 +724,7 @@ export default function Skills(props: Props) {
               <div className="skills-preview-heading">
                 <h3>SKILL.md</h3>
                 <span>
-                  {showTranslation ? "中文译文 · 仅供阅读" : "只读预览"}
+                  {visibleTranslation ? t("译文 · 仅供阅读") : t("只读预览")}
                 </span>
               </div>
               {detailError && (
@@ -697,27 +734,31 @@ export default function Skills(props: Props) {
                     className="button ghost"
                     onClick={() => void preview(record.id)}
                   >
-                    重试
+                    {t("重试")}
                   </button>
                 </div>
               )}
               {detailLoading ? (
                 <p className="skills-preview-loading" role="status">
-                  正在读取技能…
+                  {t("正在读取技能…")}
                 </p>
               ) : (
                 detail && (
                   <>
                     <pre className="skills-preview">
-                      {showTranslation ? translation?.content : detail.content}
+                      {visibleTranslation
+                        ? translation?.content
+                        : detail.content}
                     </pre>
-                    {(showTranslation
+                    {(visibleTranslation
                       ? translation?.truncated
                       : detail.truncated) && (
                       <p className="skills-truncated">
                         {showTranslation
-                          ? "文件较长，仅翻译前 12,000 字。可切回原文查看。"
-                          : "文件较长，仅展示前段内容。可在文件夹中打开原文件。"}
+                          ? t("文件较长，仅翻译前 12,000 字。可切回原文查看。")
+                          : t(
+                              "文件较长，仅展示前段内容。可在文件夹中打开原文件。",
+                            )}
                       </p>
                     )}
                   </>
@@ -729,13 +770,13 @@ export default function Skills(props: Props) {
       </div>
       {action === "create" && (
         <SkillDialog
-          title="新建技能"
+          title={t("新建技能")}
           busy={mutationBusy}
           onClose={() => setAction(null)}
         >
           <form onSubmit={create}>
             <label className="setting-field">
-              <span>保存位置</span>
+              <span>{t("保存位置")}</span>
               <select
                 value={createRoot}
                 onChange={(event) => setCreateRoot(event.target.value)}
@@ -743,45 +784,45 @@ export default function Skills(props: Props) {
               >
                 {catalog.roots.map((root) => (
                   <option key={root.rootPath} value={root.rootPath}>
-                    {root.scope === "project" ? "项目" : "全局"} · {root.label}{" "}
-                    · {root.rootPath}
+                    {root.scope === "project" ? t("项目") : t("全局")} ·{" "}
+                    {root.label} · {root.rootPath}
                   </option>
                 ))}
               </select>
             </label>
             <label className="setting-field">
-              <span>技能名称</span>
+              <span>{t("技能名称")}</span>
               <input
                 value={createName}
                 onChange={(event) => setCreateName(event.target.value)}
                 required
                 maxLength={64}
                 pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                placeholder="例如：weekly-review"
+                placeholder={t("例如：weekly-review")}
                 autoComplete="off"
               />
-              <small>小写字母、数字和连字符。</small>
+              <small>{t("小写字母、数字和连字符。")}</small>
             </label>
             <label className="setting-field">
-              <span>用途说明</span>
+              <span>{t("用途说明")}</span>
               <textarea
                 rows={2}
                 required
                 maxLength={1024}
                 value={createDescription}
                 onChange={(event) => setCreateDescription(event.target.value)}
-                placeholder="这个技能做什么，什么时候使用。"
+                placeholder={t("这个技能做什么，什么时候使用。")}
               />
             </label>
             <label className="setting-field">
-              <span>技能内容</span>
+              <span>{t("技能内容")}</span>
               <textarea
                 className="skill-content-input"
                 rows={8}
                 required
                 value={createContent}
                 onChange={(event) => setCreateContent(event.target.value)}
-                placeholder="填写工作步骤与要求，系统会生成标准 SKILL.md。"
+                placeholder={t("填写工作步骤与要求，系统会生成标准 SKILL.md。")}
               />
             </label>
             {mutationError && (
@@ -790,9 +831,11 @@ export default function Skills(props: Props) {
               </p>
             )}
             <div className="modal-footer">
-              <span className="small">创建文件，不会自动执行或启用。</span>
+              <span className="small">
+                {t("创建文件，不会自动执行或启用。")}
+              </span>
               <button className="button primary" disabled={mutationBusy}>
-                {mutationBusy ? "正在创建…" : "创建技能"}
+                {mutationBusy ? t("正在创建…") : t("创建技能")}
               </button>
             </div>
           </form>
@@ -800,20 +843,22 @@ export default function Skills(props: Props) {
       )}
       {action === "delete" && deleteRecord && (
         <SkillDialog
-          title="删除技能"
+          title={t("删除技能")}
           busy={mutationBusy}
           onClose={() => setAction(null)}
         >
           <p className="skill-delete-name">{deleteRecord.name}</p>
           <p className="settings-note">
-            将此技能目录及其配套资源移入回收区，可以恢复。关联路径下的 Agent
-            后续可能无法发现它；运行中的会话不会因此自动卸载。
+            {t(
+              "将此技能目录及其配套资源移入回收区，可以恢复。关联路径下的 Agent 后续可能无法发现它；运行中的会话不会因此自动卸载。",
+            )}
           </p>
           <div className="skill-delete-sources">
             {deleteRecord.sources.map((source, index) => (
               <div key={index}>
                 <strong>
-                  {source.scope === "global" ? "全局" : "项目"} · {source.label}
+                  {source.scope === "global" ? t("全局") : t("项目")} ·{" "}
+                  {source.label}
                 </strong>
                 <code>{source.rootPath}</code>
               </div>
@@ -831,25 +876,27 @@ export default function Skills(props: Props) {
               disabled={mutationBusy}
               onClick={() => setAction(null)}
             >
-              保留技能
+              {t("保留技能")}
             </button>
             <button
               className="button danger"
               disabled={mutationBusy}
               onClick={() => void moveToTrash()}
             >
-              {mutationBusy ? "正在移入…" : "移入回收区"}
+              {mutationBusy ? t("正在移入…") : t("移入回收区")}
             </button>
           </div>
         </SkillDialog>
       )}
       {action === "trash" && (
         <SkillDialog
-          title="技能回收区"
+          title={t("技能回收区")}
           busy={mutationBusy}
           onClose={() => setAction(null)}
         >
-          <p className="modal-intro">恢复到原位置；已有同名目录时不会覆盖。</p>
+          <p className="modal-intro">
+            {t("恢复到原位置；已有同名目录时不会覆盖。")}
+          </p>
           {mutationError && (
             <p className="form-error" role="alert">
               {mutationError}
@@ -857,10 +904,10 @@ export default function Skills(props: Props) {
           )}
           {trashLoading ? (
             <p className="skills-empty" role="status">
-              正在读取回收区…
+              {t("正在读取回收区…")}
             </p>
           ) : trash.length === 0 ? (
-            <p className="skills-empty">回收区为空</p>
+            <p className="skills-empty">{t("回收区为空")}</p>
           ) : (
             <div className="skill-trash-list">
               {trash.map((entry) => (
@@ -869,7 +916,7 @@ export default function Skills(props: Props) {
                     <strong>{entry.name}</strong>
                     <small>{entry.originalDirectory}</small>
                     <time dateTime={entry.createdAt}>
-                      {new Date(entry.createdAt).toLocaleString()}
+                      {new Date(entry.createdAt).toLocaleString(dateLocale)}
                     </time>
                   </div>
                   <button
@@ -877,7 +924,7 @@ export default function Skills(props: Props) {
                     disabled={mutationBusy}
                     onClick={() => void restore(entry)}
                   >
-                    恢复
+                    {t("恢复")}
                   </button>
                 </article>
               ))}

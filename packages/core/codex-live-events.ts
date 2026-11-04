@@ -1,3 +1,5 @@
+import { translate } from "../i18n/index.cjs";
+import type { Locale } from "../contracts/index.js";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
@@ -386,6 +388,7 @@ export class CodexLiveEvents {
         return false;
       }
     },
+    private readonly locale: () => Locale = () => "zh-CN",
   ) {}
   async context(
     sessionId: string,
@@ -407,9 +410,11 @@ export class CodexLiveEvents {
     _cwd: string,
     signal: AbortSignal,
   ): Promise<NativeReadResult> {
+    const tr = (source: string, values?: Record<string, string | number>) =>
+      translate(this.locale(), source, values);
     const records = await this.list(signal);
     const root = await realpath(this.root).catch(() => {
-      throw Error("本机未找到可核验的 Codex 执行记录目录");
+      throw Error(tr("本机未找到可核验的 Codex 执行记录目录"));
     });
     const now = Date.now();
     const writers = new Map<string, OpenCodexRecord>();
@@ -463,7 +468,7 @@ export class CodexLiveEvents {
         state = {
           ...tracked.lastState,
           status: "unknown",
-          progress: "执行记录暂时不可读，状态待核验",
+          progress: tr("执行记录暂时不可读，状态待核验"),
         };
       }
       if (state.internal) {
@@ -523,7 +528,7 @@ export class CodexLiveEvents {
         turnId: state.turnId,
         title:
           "Codex · " +
-          (basename(state.cwd) || "本机会话") +
+          (basename(state.cwd) || tr("本机会话")) +
           " · " +
           state.sessionId.slice(-6),
         cwd: state.cwd,
@@ -533,9 +538,9 @@ export class CodexLiveEvents {
         progress:
           state.status === "running" && status === "unknown"
             ? confirmed
-              ? "缺少近期执行事件，当前状态待核验"
-              : "未检测到写入进程，当前状态待核验"
-            : state.progress,
+              ? tr("缺少近期执行事件，当前状态待核验")
+              : tr("未检测到写入进程，当前状态待核验")
+            : tr(state.progress),
         observedAt: new Date().toISOString(),
         eventAt: state.eventAt,
       });
@@ -554,12 +559,17 @@ export class CodexLiveEvents {
       state: verifiedSource ? "connected" : "unavailable",
       message:
         writers.size && verified
-          ? (failures
-              ? "部分执行记录未核验，已确认执行 "
-              : "已核验 Codex 执行记录，正在执行 ") +
-            sessions.filter((session) => session.status === "running").length +
-            " 个会话"
-          : "未取得可核验的 Codex 当前执行记录",
+          ? tr(
+              failures
+                ? "部分执行记录未核验，已确认执行 {count} 个会话"
+                : "已核验 Codex 执行记录，正在执行 {count} 个会话",
+              {
+                count: sessions.filter(
+                  (session) => session.status === "running",
+                ).length,
+              },
+            )
+          : tr("未取得可核验的 Codex 当前执行记录"),
       sessions,
       excludedSessionIds,
     };

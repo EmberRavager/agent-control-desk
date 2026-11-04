@@ -1,3 +1,4 @@
+import { useI18n } from "./i18n.js";
 import React, { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ModelConfig } from "../../packages/contracts/index.js";
 import {
@@ -26,6 +27,7 @@ function sameOrigin(a: string, b: string) {
   }
 }
 export default function ModelSettings({ config, save, loadModels }: Props) {
+  const { t } = useI18n();
   const initial =
     modelProviders.find((p) => p.id === config?.providerId) ||
     modelProviders.find(
@@ -82,7 +84,7 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
   }
   async function fetchModels() {
     if (keyRequired && !retained && !key.trim()) {
-      setCatalogError("请先填写此服务的 API Key，再获取模型列表。");
+      setCatalogError(t("请先填写此服务的 API Key，再获取模型列表。"));
       keyField.current?.focus();
       return;
     }
@@ -100,7 +102,7 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
     } catch (e) {
       if (live.current && ticket === generation.current)
         setCatalogError(
-          e instanceof Error ? e.message : "获取失败，仍可手动填写模型 ID。",
+          e instanceof Error ? e.message : t("获取失败，仍可手动填写模型 ID。"),
         );
     } finally {
       if (live.current && ticket === generation.current)
@@ -126,7 +128,7 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
       }
     } catch (e) {
       if (live.current)
-        setError(e instanceof Error ? e.message : "保存失败，请重试");
+        setError(e instanceof Error ? e.message : t("保存失败，请重试"));
     } finally {
       if (live.current) setSaving(false);
     }
@@ -134,14 +136,15 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
   return (
     <form onSubmit={submit} className="model-settings">
       <div className="settings-role-note">
-        <strong>执行 Agent 单独配置</strong>
+        <strong>{t("执行 Agent 单独配置")}</strong>
         <p>
-          这里的 Key 用于 ACD 总控。Codex、Claude Code 等执行 Agent
-          需要在各自程序中登录和配置模型。
+          {t(
+            "这里的 Key 用于 ACD 总控。Codex、Claude Code 等执行 Agent 需要在各自程序中登录和配置模型。",
+          )}
         </p>
       </div>
       <label className="setting-field" htmlFor="model-provider">
-        <span>模型服务商</span>
+        <span>{t("模型服务商")}</span>
         <select
           id="model-provider"
           value={providerId}
@@ -150,26 +153,31 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
           aria-describedby="provider-help"
         >
           {providerGroups.map((group) => (
-            <optgroup label={group} key={group}>
+            <optgroup label={t(group)} key={group}>
               {modelProviders
                 .filter((p) => p.group === group)
                 .map((p) => (
                   <option value={p.id} key={p.id}>
-                    {p.name}
+                    {t(p.name)}
                   </option>
                 ))}
             </optgroup>
           ))}
         </select>
         <small id="provider-help" className="field-help">
-          {provider.hint ||
-            "使用此服务商控制台创建的 API Key；模型以服务返回的完整 ID 为准。"}
+          {(provider.hint && t(provider.hint)) ||
+            t(
+              "使用此服务商控制台创建的 API Key；模型以服务返回的完整 ID 为准。",
+            )}
         </small>
       </label>
       <label className="setting-field" htmlFor="model-key">
         <span>
-          API Key {retained && <em className="settings-field-badge">已保存</em>}
-          {!keyRequired && <em className="settings-field-badge">本机可留空</em>}
+          API Key{" "}
+          {retained && <em className="settings-field-badge">{t("已保存")}</em>}
+          {!keyRequired && (
+            <em className="settings-field-badge">{t("本机可留空")}</em>
+          )}
         </span>
         <input
           id="model-key"
@@ -184,10 +192,10 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
           }}
           placeholder={
             retained
-              ? "留空保留已保存的 Key"
+              ? t("留空保留已保存的 Key")
               : keyRequired
-                ? "填写此服务商的 API Key"
-                : "若本地服务启用了认证，请填写 Key"
+                ? t("填写此服务商的 API Key")
+                : t("若本地服务启用了认证，请填写 Key")
           }
           autoComplete="off"
           spellCheck={false}
@@ -195,13 +203,14 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
           aria-describedby="key-help"
         />
         <small id="key-help" className="field-help">
-          保存在系统凭证存储中，不显示已保存的原文。获取模型列表不会保存草稿
-          Key。
+          {t(
+            "保存在系统凭证存储中，不显示已保存的原文。获取模型列表不会保存草稿 Key。",
+          )}
         </small>
       </label>
       <div className="setting-field model-setting-field">
         <div className="model-setting-label">
-          <label htmlFor="model-id">模型</label>
+          <label htmlFor="model-id">{t("模型")}</label>
           <button
             type="button"
             className="button ghost"
@@ -209,10 +218,10 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
             disabled={saving || loadingModels}
           >
             {loadingModels
-              ? "正在获取…"
+              ? t("正在获取…")
               : catalog
-                ? "刷新模型列表"
-                : "获取模型列表"}
+                ? t("刷新模型列表")
+                : t("获取模型列表")}
           </button>
         </div>
         <ModelPicker
@@ -227,20 +236,21 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
           source={catalog ? "remote" : "suggestions"}
         />
         <small id="model-help" className="field-help">
-          可搜索列表或直接填写完整模型
-          ID，不受内置选项限制。总控模型需要能返回合法 JSON。
+          {t(
+            "可搜索列表或直接填写完整模型 ID，不受内置选项限制。总控模型需要能返回合法 JSON。",
+          )}
         </small>
         {catalog ? (
           <p className="model-catalog-status" role="status">
-            已获取 {catalog.models.length} 个模型
-            {catalog.hasMore ? "，列表未完整，可继续手动填写" : ""}
-            。返回列表不等于已验证调用权限。
+            {t("已获取 {count} 个模型", { count: catalog.models.length })}
+            {catalog.hasMore ? t("，列表未完整，可继续手动填写") : ""}
+            {t("。返回列表不等于已验证调用权限。")}
           </p>
         ) : (
           <p className="model-catalog-hint">
             {provider.models.length
-              ? "内置参考型号可直接选择，获取服务列表可加载更多模型。"
-              : "先获取服务中的模型，或填写你已部署的模型 ID。"}
+              ? t("内置参考型号可直接选择，获取服务列表可加载更多模型。")
+              : t("先获取服务中的模型，或填写你已部署的模型 ID。")}
           </p>
         )}
         {catalogError && (
@@ -254,10 +264,10 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
         open={provider.id === "custom" ? true : undefined}
       >
         <summary>
-          高级设置 <span>接口地址与协议</span>
+          {t("高级设置")} <span>{t("接口地址与协议")}</span>
         </summary>
         <label className="setting-field" htmlFor="model-endpoint">
-          <span>接口地址</span>
+          <span>{t("接口地址")}</span>
           <input
             id="model-endpoint"
             type="url"
@@ -274,13 +284,14 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
             aria-describedby="endpoint-help"
           />
           <small id="endpoint-help" className="field-help">
-            填写基础地址，不包含 /chat/completions 或
-            /messages。地区、工作空间和套餐需要对应的地址与 Key。
+            {t(
+              "填写基础地址，不包含 /chat/completions 或 /messages。地区、工作空间和套餐需要对应的地址与 Key。",
+            )}
           </small>
         </label>
         {provider.id === "custom" ? (
           <label className="setting-field" htmlFor="model-protocol">
-            <span>接口协议</span>
+            <span>{t("接口协议")}</span>
             <select
               id="model-protocol"
               value={protocol}
@@ -291,18 +302,20 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
               }}
               disabled={saving}
             >
-              <option value="openai-chat">OpenAI Chat Completions 兼容</option>
+              <option value="openai-chat">
+                {t("OpenAI Chat Completions 兼容")}
+              </option>
               <option value="anthropic-messages">
-                Anthropic Messages 兼容
+                {t("Anthropic Messages 兼容")}
               </option>
             </select>
           </label>
         ) : (
           <p className="field-help">
-            接口协议：
+            {t("接口协议：")}
             {protocol === "anthropic-messages"
               ? "Anthropic Messages"
-              : "OpenAI Chat Completions 兼容"}
+              : t("OpenAI Chat Completions 兼容")}
           </p>
         )}
       </details>
@@ -313,15 +326,17 @@ export default function ModelSettings({ config, save, loadModels }: Props) {
       )}
       {saved && (
         <p className="settings-saved" role="status">
-          模型配置已保存，可以返回总控交代任务。
+          {t("模型配置已保存，可以返回总控交代任务。")}
         </p>
       )}
       <div className="settings-form-actions">
         <p className="field-help">
-          获取列表不生成内容；保存不会调用模型。模型是否适用于总控，以实际任务结果为准。
+          {t(
+            "获取列表不生成内容；保存不会调用模型。模型是否适用于总控，以实际任务结果为准。",
+          )}
         </p>
         <button className="button primary" disabled={saving}>
-          {saving ? "保存中…" : "保存模型配置"}
+          {saving ? t("保存中…") : t("保存模型配置")}
         </button>
       </div>
     </form>

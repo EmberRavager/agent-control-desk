@@ -269,6 +269,33 @@ test("allocation requests cannot silently lose their constraints on older daemon
   );
 });
 
+test("a single-preference daemon cannot read or save desktop rankings", async () => {
+  const context = harness();
+  const paths = [];
+  context.fetch = async (url) => {
+    paths.push(new URL(url).pathname);
+    return {
+      ok: true,
+      json: async () => ({
+        protocol: 1,
+        pid: 1234,
+        capabilities: ["agent-allocation"],
+      }),
+    };
+  };
+  await assert.rejects(
+    context.api.request("GET", "/api/allocation"),
+    /后台版本较旧/,
+  );
+  await assert.rejects(
+    context.api.request("PUT", "/api/allocation", {
+      agentIds: ["pi", "codex"],
+    }),
+    /后台版本较旧/,
+  );
+  assert.ok(!paths.includes("/api/allocation"));
+});
+
 test("allocation operations pass through the restricted bridge to capable daemons", async () => {
   const context = harness();
   const calls = [];
@@ -283,12 +310,19 @@ test("allocation operations pass through the restricted bridge to capable daemon
       json: async () => ({
         protocol: 1,
         pid: 1234,
-        capabilities: ["agent-allocation", "message-idempotency"],
+        capabilities: [
+          "agent-allocation",
+          "allocation-priority",
+          "message-idempotency",
+        ],
       }),
     };
   };
   await context.api.request("GET", "/api/allocation");
-  await context.api.request("PUT", "/api/allocation", { agentId: "codex" });
+  await context.api.request("PUT", "/api/allocation", {
+    agentIds: ["pi", "codex"],
+  });
+  assert.deepEqual(JSON.parse(calls.at(-1).body).agentIds, ["pi", "codex"]);
   await context.api.request("POST", "/api/messages", {
     text: "工作",
     clientMessageId: "fixture-id",
@@ -300,4 +334,74 @@ test("allocation operations pass through the restricted bridge to capable daemon
     2,
   );
   assert.equal(JSON.parse(calls.at(-1).body).targetAgentId, "codex");
+});
+
+test("language preferences reject legacy services and accept only the explicit locale route", async () => {
+  const legacy = harness();
+  await assert.rejects(
+    legacy.api.request("PUT", "/api/preferences", { locale: "en" }),
+    /版本较旧/,
+  );
+  const supported = harness();
+  const calls = [];
+  supported.fetch = async (url, options) => {
+    calls.push({ url: String(url), options });
+    return {
+      ok: true,
+      json: async () =>
+        String(url).endsWith("/api/health")
+          ? { protocol: 1, pid: 1234, capabilities: ["i18n"] }
+          : { locale: "en" },
+    };
+  };
+  const value = await supported.api.request("PUT", "/api/preferences", {
+    locale: "en",
+  });
+  assert.equal(value.locale, "en");
+  assert.equal(calls.at(-1).options.body, '{"locale":"en"}');
+  await assert.rejects(
+    supported.api.request("PUT", "/api/preferences/arbitrary", {
+      locale: "en",
+    }),
+    /Unsupported client operation/,
+  );
+});
+
+test("personal memory CRUD requires the declared capability and exact UUID routes", async () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const routes = [
+    ["GET", "/api/memories"],
+    ["POST", "/api/memories"],
+    ["PUT", "/api/memories/" + id],
+    ["POST", "/api/memories/" + id + "/delete"],
+  ];
+  const older = harness();
+  const current = harness();
+  let sent = 0;
+  current.fetch = async (url, options) => {
+    if (new URL(url).pathname.startsWith("/api/memories")) {
+      assert.equal(options.headers.Authorization, "Bearer " + "f".repeat(64));
+      sent++;
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        protocol: 1,
+        pid: 1234,
+        capabilities: ["personal-memory"],
+      }),
+    };
+  };
+  for (const [method, resource] of routes) {
+    await assert.rejects(older.api.request(method, resource), /后台版本较旧/);
+    await current.api.request(method, resource);
+  }
+  for (const [method, resource] of [
+    ["DELETE", "/api/memories/" + id],
+    ["PUT", "/api/memories/" + "-".repeat(36)],
+    ["GET", "/api/memories?all=1"],
+    ["POST", "/api/memories/" + id + "/delete/extra"],
+  ])
+    await assert.rejects(current.api.request(method, resource), /不支持/);
+  assert.equal(sent, routes.length);
 });

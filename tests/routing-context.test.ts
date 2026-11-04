@@ -239,3 +239,60 @@ test("non-greeting chat, an omitted title collision and a prior bulk status neve
     ["clarify"],
   );
 });
+test("a new project request omits another project's active work; an explicit title and global progress still resolve it", async () => {
+  const foreign = { ...task(1, "running"), cwd: "/other", title: "检查发票" };
+  const s = fixture([foreign]);
+  assert.deepEqual(
+    (await capture(s, "请检查这个项目的目录结构")).input.tasks,
+    [],
+  );
+  assert.equal(
+    (await capture(s, "检查发票的任务怎么样了")).input.tasks[0].id,
+    foreign.id,
+  );
+  assert.equal(
+    (await capture(s, "所有项目有哪些任务在跑")).input.tasks[0].id,
+    foreign.id,
+  );
+});
+test("the phrase 'selected old task' does not fill spare candidate slots with unrelated archived tasks", async () => {
+  const s = fixture(Array.from({ length: 500 }, (_, i) => task(i)));
+  const selected = s.tasks[220];
+  const input = (
+    await capture(s, "针对选中的旧任务再做一次复核", [], selected.id)
+  ).input;
+  assert.deepEqual(
+    input.tasks.map((t: Task) => t.id),
+    [selected.id],
+  );
+});
+test("a single explicitly addressed executor survives a shortened context when the model returns only its suggestion", async () => {
+  const s = fixture([]);
+  s.agents = ["codex", "claude"].map((kind) => ({
+    id: "local-" + kind,
+    name: kind === "claude" ? "Claude Code" : "Codex",
+    kind: kind as "claude" | "codex",
+    executable: "/fixture",
+    available: true,
+    selected: true,
+    capabilities: { steer: false, resume: true },
+  }));
+  const create = {
+    type: "create",
+    title: "检查说明",
+    goal: "只读核验",
+    agentId: "local-claude",
+  };
+  for (const [text, want] of [
+    [
+      "另建独立任务，交给 Claude Code，只读检查 LICENSE 并汇报。",
+      "local-claude",
+    ],
+    ["不要交给 Claude Code，只读检查 LICENSE 并汇报。", undefined],
+    ["比较 Claude Code 和 Codex", undefined],
+  ]) {
+    const r = await capture(s, text!, [create]);
+    const a = r.decision.actions[0];
+    assert.equal(a.type === "create" && a.requestedAgentId, want);
+  }
+});

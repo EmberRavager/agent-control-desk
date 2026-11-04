@@ -46,8 +46,8 @@ node apps/cli/acd.mjs
 acd send "梳理这个项目的启动方式，先不要修改文件"
 acd agents list
 acd send "检查项目，执行中需要追加要求" --agent <Agent编号> --require steer
-acd agents default <Agent编号> --project /absolute/path/to/project
-acd agents default none  # 清除全局默认；加 --project 清除项目默认
+acd agents default <首选编号> <次选编号> --project /absolute/path/to/project
+acd agents default none  # 清除全局排序；加 --project 清除项目排序
 acd tasks
 acd sessions
 acd schedules

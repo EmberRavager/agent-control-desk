@@ -112,7 +112,9 @@ export class Schedules {
       const task = this.runtime.store.get<Task>("tasks", run.taskId);
       if (!task || ["unknown", "blocked"].includes(task.status)) {
         run.status = "unknown";
-        run.detail = "后台已重启，本轮需核对原任务；未自动重跑。";
+        run.detail = this.runtime.tr(
+          "后台已重启，本轮需核对原任务；未自动重跑。",
+        );
         this.runtime.store.put("schedule-runs", run.id, run);
         const schedule = this.getOptional(run.scheduleId);
         if (schedule?.lastRun?.id === run.id)
@@ -128,7 +130,7 @@ export class Schedules {
   }
   get(id: string) {
     const value = this.getOptional(id);
-    if (!value) throw Error("定时任务不存在");
+    if (!value) throw Error(this.runtime.tr("定时任务不存在"));
     return value;
   }
   list() {
@@ -144,9 +146,11 @@ export class Schedules {
   }
   private validate(input: ScheduleInput) {
     const value = scheduleInputSchema.parse(input);
-    if (!isAbsolute(value.cwd)) throw Error("工作目录必须为绝对路径");
+    if (!isAbsolute(value.cwd))
+      throw Error(this.runtime.tr("工作目录必须为绝对路径"));
     value.cwd = realpathSync(value.cwd);
-    if (!statSync(value.cwd).isDirectory()) throw Error("工作目录不存在");
+    if (!statSync(value.cwd).isDirectory())
+      throw Error(this.runtime.tr("工作目录不存在"));
     const agent = this.runtime.store
       .list<{
         id: string;
@@ -161,7 +165,7 @@ export class Schedules {
           agent.available &&
           agent.supported !== false,
       );
-    if (!agent) throw Error("请选择已接入且可执行的 Agent");
+    if (!agent) throw Error(this.runtime.tr("请选择已接入且可执行的 Agent"));
     return value;
   }
   create(input: ScheduleInput) {
@@ -169,7 +173,7 @@ export class Schedules {
     const value = this.validate(input);
     const now = this.now();
     const nextRunAt = nextScheduleTime(value.rule, now);
-    if (!nextRunAt) throw Error("单次执行时间必须在未来");
+    if (!nextRunAt) throw Error(this.runtime.tr("单次执行时间必须在未来"));
     const schedule: Schedule = {
       ...value,
       id: randomUUID(),
@@ -191,7 +195,7 @@ export class Schedules {
       changed || before.status === "finished"
         ? nextScheduleTime(value.rule, this.now())
         : before.nextRunAt;
-    if (!nextRunAt) throw Error("请设置未来的单次执行时间");
+    if (!nextRunAt) throw Error(this.runtime.tr("请设置未来的单次执行时间"));
     const schedule: Schedule = {
       ...before,
       ...value,
@@ -211,14 +215,14 @@ export class Schedules {
     this.checkOpen();
     const before = this.get(id);
     if (expectedUpdatedAt && before.updatedAt !== expectedUpdatedAt)
-      throw Error("定时任务已更新，请依据最新计划重新确认");
+      throw Error(this.runtime.tr("定时任务已更新，请依据最新计划重新确认"));
     if (operation === "delete") {
       this.runtime.store.remove("schedules", id);
       this.runtime.publish();
       return { ok: true as const };
     }
     if (operation === "pause" && before.status === "finished")
-      throw Error("此单次计划已结束，请编辑后重新启用");
+      throw Error(this.runtime.tr("此单次计划已结束，请编辑后重新启用"));
     if (
       (operation === "pause" && before.status === "paused") ||
       (operation === "resume" && before.status === "active")
@@ -229,7 +233,7 @@ export class Schedules {
         ? nextScheduleTime(before.rule, this.now())
         : before.nextRunAt;
     if (operation === "resume" && !nextRunAt)
-      throw Error("单次时间已过，请编辑后重新启用");
+      throw Error(this.runtime.tr("单次时间已过，请编辑后重新启用"));
     const schedule: Schedule = {
       ...before,
       nextRunAt,
@@ -246,7 +250,7 @@ export class Schedules {
     ).toISOString();
   }
   private checkOpen() {
-    if (this.closed) throw Error("服务正在退出");
+    if (this.closed) throw Error(this.runtime.tr("服务正在退出"));
   }
   start() {
     if (this.closed || this.timer) return;
@@ -291,20 +295,24 @@ export class Schedules {
       scheduledFor,
       recordedAt: new Date(now).toISOString(),
       status: "dispatched",
-      detail: "已交给任务队列；执行结果以关联任务为准。",
+      detail: this.runtime.tr("已交给任务队列；执行结果以关联任务为准。"),
     };
     let task: Task | undefined;
     const tasks = this.runtime.store.list<Task>("tasks");
     if (recovering || now - Date.parse(scheduledFor) > GRACE_MS) {
       run.status = "missed";
-      run.detail = "后台离线或唤醒延迟，错过的时间不补跑；周期计划已移到下次。";
+      run.detail = this.runtime.tr(
+        "后台离线或唤醒延迟，错过的时间不补跑；周期计划已移到下次。",
+      );
     } else if (
       tasks.some(
         (task) => task.scheduleId === schedule.id && !terminal.has(task.status),
       )
     ) {
       run.status = "skipped";
-      run.detail = "此计划上一轮仍在运行、排队或待核对，本轮已跳过。";
+      run.detail = this.runtime.tr(
+        "此计划上一轮仍在运行、排队或待核对，本轮已跳过。",
+      );
     } else {
       try {
         task = this.runtime.prepareTask({
@@ -318,8 +326,9 @@ export class Schedules {
         run.taskId = task.id;
       } catch {
         run.status = "failed";
-        run.detail =
-          "工作目录或执行 Agent 当前不可用，本轮未启动；请检查计划设置。";
+        run.detail = this.runtime.tr(
+          "工作目录或执行 Agent 当前不可用，本轮未启动；请检查计划设置。",
+        );
       }
     }
     const nextRunAt = nextScheduleTime(
@@ -344,7 +353,7 @@ export class Schedules {
         latest.nextRunAt !== scheduledFor ||
         latest.updatedAt !== schedule.updatedAt
       )
-        throw Error("计划已更新");
+        throw Error(this.runtime.tr("计划已更新"));
       this.runtime.store.put("schedules", schedule.id, updated);
       this.runtime.store.put("schedule-runs", run.id, run);
       if (task) this.runtime.store.put("tasks", task.id, task);
@@ -352,7 +361,9 @@ export class Schedules {
     if (task)
       this.runtime.dispatchPreparedTask(
         task,
-        `定时触发「${schedule.name}」，结果将在此对话汇报。`,
+        this.runtime.tr("定时触发「{v0}」，结果将在此对话汇报。", {
+          v0: schedule.name,
+        }),
       );
     else if (run.status === "failed")
       this.runtime.reportScheduleFailure(schedule.name, run.detail);

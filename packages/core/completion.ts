@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import type {
+  PersonalMemory,
+  WorkflowObservation,
+} from "../contracts/memory.js";
+import { safeWorkflowObservation } from "./personal-memory.js";
 import type { Message, Task } from "../contracts/index.js";
 import {
   inspectReportArtifacts,
@@ -20,8 +25,11 @@ export interface CompletionAssessment {
   evidence: string;
   summary: string;
   suggestions: string[];
+  workflow?: WorkflowObservation;
 }
 export interface CompletionInput {
+  personalMemories?: Pick<PersonalMemory, "kind" | "title" | "content">[];
+  workflowActivities?: string[];
   previous?: AssessmentContext;
   userRequest?: string;
   artifacts?: ReportArtifact[];
@@ -47,6 +55,8 @@ export interface CompletionJob extends CompletionInput {
   attempts: number;
   retryAt: number;
   prepared: boolean;
+  learnWorkflow?: boolean;
+  pendingWorkflow?: WorkflowObservation;
   createdAt: string;
 }
 export function queueCompletion(
@@ -72,6 +82,7 @@ export function queueCompletion(
     attempts: 0,
     retryAt: 0,
     prepared: !input.native,
+    ...(input.taskId || input.native ? { learnWorkflow: true } : {}),
     createdAt: new Date().toISOString(),
     requirements: input.requirements.map((text) => publicSnippet(text, 1500)),
     result: publicSnippet(input.result, 200000).slice(-6000),
@@ -111,7 +122,7 @@ export class CompletionReporter {
   }
   retry(id: string) {
     const job = this.runtime.store.get<CompletionJob>("completion-jobs", id);
-    if (!job) throw Error("结果报告不存在");
+    if (!job) throw Error(this.runtime.tr("结果报告不存在"));
     if (job.state === "done" || job.state === "working") return;
     this.runtime.store.put("completion-jobs", id, {
       ...job,
@@ -185,6 +196,7 @@ export class CompletionReporter {
         id: job.id,
         title: job.title,
         status,
+        taskRevision: job.taskRevision,
         nativeId: job.native?.id,
         turnId: job.native?.turnId,
         agentName: job.native?.agentName,
@@ -196,21 +208,25 @@ export class CompletionReporter {
       "completion-jobs",
     )) {
       if (this.stopped) return;
-      if (pending.state !== "pending" || pending.retryAt > Date.now()) continue;
+      if (pending.retryAt > Date.now()) continue;
+      if (pending.state === "done" && pending.pendingWorkflow) {
+        this.finish(pending);
+        continue;
+      }
+      if (pending.state !== "pending") continue;
       if (!this.current(pending)) {
         this.skip(pending);
         continue;
       }
       const message = this.runtime.store.getMessage(pending.messageId);
       if (message?.completion?.status === "ready") {
-        this.runtime.store.put("completion-jobs", pending.id, {
-          ...pending,
-          state: "done",
-        });
+        this.finish(pending);
         continue;
       }
+      // If a crash happened before the ready message was published, reassess from the original inputs.
+      const { pendingWorkflow: _interrupted, ...inputs } = pending;
       let job: CompletionJob = {
-        ...pending,
+        ...inputs,
         state: "working",
         attempts: pending.attempts + 1,
       };
@@ -278,7 +294,7 @@ export class CompletionReporter {
                 .join("\n")
                 .slice(0, 4000),
               outcome: "in_progress",
-              summary: "尚无最终产物。",
+              summary: this.runtime.tr("尚无最终产物。"),
               recentRequests,
               lastDelivery: previous?.lastDelivery,
               fingerprint,
@@ -300,9 +316,11 @@ export class CompletionReporter {
               job.result,
             )
           : [];
+        const locale = this.runtime.preferences().locale;
         const assessment = await this.runtime.summarizeCompletion(
           {
             title: job.title,
+            ...this.memoryContext(job),
             ...(job.userRequest ? { userRequest: job.userRequest } : {}),
             requirements: job.requirements,
             result: job.result,
@@ -320,8 +338,17 @@ export class CompletionReporter {
               : {}),
           },
           this.controller.signal,
+          locale,
         );
-        if (this.stopped) throw Error("报告服务正在退出");
+        if (this.runtime.preferences().locale !== locale && !this.stopped) {
+          this.runtime.store.put("completion-jobs", job.id, {
+            ...job,
+            state: "pending",
+            attempts: pending.attempts,
+          });
+          continue;
+        }
+        if (this.stopped) throw Error(this.runtime.tr("报告服务正在退出"));
         if (!this.current(job)) {
           this.skip(job);
           continue;
@@ -357,7 +384,9 @@ export class CompletionReporter {
           return;
         }
         const text =
-          error instanceof Error ? error.message : "暂时无法整理结果";
+          error instanceof Error
+            ? error.message
+            : this.runtime.tr("暂时无法整理结果");
         this.runtime.store.put("completion-jobs", job.id, {
           ...job,
           state: job.attempts < 2 ? "pending" : "failed",
@@ -367,7 +396,7 @@ export class CompletionReporter {
           const message = this.message(
             job,
             "failed",
-            "完成判定暂时失败，可重试。",
+            this.runtime.tr("完成判定暂时失败，可重试。"),
           );
           message.completion!.error = text;
           this.runtime.store.message(message);
@@ -376,9 +405,65 @@ export class CompletionReporter {
       }
     }
   }
+  private memoryContext(
+    job: CompletionJob,
+  ): Pick<CompletionInput, "personalMemories" | "workflowActivities"> {
+    try {
+      const text = [job.title, ...job.requirements, job.userRequest]
+        .filter(Boolean)
+        .join("\n");
+      const memories = this.runtime.memories.select(text);
+      return {
+        ...(memories.length
+          ? {
+              personalMemories: memories.map(({ kind, title, content }) => ({
+                kind,
+                title,
+                content,
+              })),
+            }
+          : {}),
+        ...(job.learnWorkflow
+          ? { workflowActivities: this.runtime.memories.workflowActivities() }
+          : {}),
+      };
+    } catch {
+      return {};
+    }
+  }
+  private finish(job: CompletionJob) {
+    const { pendingWorkflow, ...done } = job;
+    const source = job.taskId || (job.native && "native:" + job.native.id);
+    if (pendingWorkflow && job.learnWorkflow && source) {
+      try {
+        this.runtime.memories.observeWorkflow(pendingWorkflow, source);
+      } catch {
+        // The ready report stays available. Retry the same idempotent observation without another model call.
+        this.runtime.store.put("completion-jobs", job.id, {
+          ...job,
+          state: "done",
+          retryAt: Date.now() + 30000,
+        });
+        return;
+      }
+    }
+    this.runtime.store.put("completion-jobs", job.id, {
+      ...done,
+      state: "done",
+    });
+  }
   private deliver(job: CompletionJob, assessment: CompletionAssessment) {
     const title = assessment.objective || job.title;
-    const text = `「${title}」已交付。\n\n${assessment.summary}\n\n建议：\n${assessment.suggestions.map((item, index) => `${index + 1}. ${item}`).join("\n")}`;
+    const text = this.runtime.tr(
+      "「{title}」已交付。\n\n{summary}\n\n建议：\n{suggestions}",
+      {
+        title,
+        summary: assessment.summary,
+        suggestions: assessment.suggestions
+          .map((item, index) => `${index + 1}. ${item}`)
+          .join("\n"),
+      },
+    );
     const message = this.message(job, "ready", text);
     message.completion = {
       ...message.completion!,
@@ -387,11 +472,15 @@ export class CompletionReporter {
       suggestions: assessment.suggestions,
       assessed: true,
     };
+    const observation =
+      job.learnWorkflow && safeWorkflowObservation(assessment.workflow);
+    // A restart after publishing the ready message can finish learning without reassessing.
+    if (observation) {
+      job = { ...job, pendingWorkflow: observation };
+      this.runtime.store.put("completion-jobs", job.id, job);
+    }
     this.runtime.store.message(message);
-    this.runtime.store.put("completion-jobs", job.id, {
-      ...job,
-      state: "done",
-    });
+    this.finish(job);
     this.runtime.publish();
   }
   async close() {

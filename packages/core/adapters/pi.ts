@@ -1,3 +1,5 @@
+import { translate } from "../../i18n/index.cjs";
+import type { Locale } from "../../contracts/index.js";
 import type {
   AgentAdapter,
   AdapterEvent,
@@ -32,8 +34,11 @@ export class PiAdapter implements AgentAdapter {
     private readonly launcher?: Launcher,
     private readonly timeoutMs = 30000,
     private readonly stopTimeoutMs = 5000,
+    private readonly locale: () => Locale = () => "zh-CN",
   ) {}
   async start({ task, agent, onEvent }: StartRun): Promise<RunHandle> {
+    const tr = (source: string, values?: Record<string, string | number>) =>
+      translate(this.locale(), source, values);
     if (
       task.sessionId &&
       !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(task.sessionId)
@@ -128,7 +133,7 @@ export class PiAdapter implements AgentAdapter {
         emit({
           type: "question_resolved",
           requestId: id,
-          text: "Pi 的输入请求已过期或取消，等待后续反馈。",
+          text: tr("Pi 的输入请求已过期或取消，等待后续反馈。"),
         });
     };
     const assistant = (message: any) => {
@@ -154,7 +159,7 @@ export class PiAdapter implements AgentAdapter {
       (value) => {
         if (terminal || disposed) return;
         if (!value || typeof value !== "object" || Array.isArray(value)) {
-          finish("failed", "Pi 返回了无法识别的协议记录。");
+          finish("failed", tr("Pi 返回了无法识别的协议记录。"));
           return;
         }
         const event = value as Record<string, any>;
@@ -163,7 +168,7 @@ export class PiAdapter implements AgentAdapter {
             typeof event.id === "string" ? requests.get(event.id) : undefined;
           if (!pending) {
             if (event.command === "parse")
-              finish("failed", "Pi 拒绝了协议输入，执行状态待核对。");
+              finish("failed", tr("Pi 拒绝了协议输入，执行状态待核对。"));
             return;
           }
           requests.delete(event.id);
@@ -208,23 +213,23 @@ export class PiAdapter implements AgentAdapter {
         } else if (event.type === "agent_settled") {
           if (lastReason === "stop") finish("completed");
           else if (lastReason === "aborted")
-            finish("cancelled", "Pi 已确认停止，已有修改保留。");
+            finish("cancelled", tr("Pi 已确认停止，已有修改保留。"));
           else
             finish(
               "failed",
-              "Pi 已结束本轮，但未返回正常完成结果，请核对原生输出。",
+              tr("Pi 已结束本轮，但未返回正常完成结果，请核对原生输出。"),
             );
         } else if (event.type === "tool_execution_start")
           emit({
             type: "progress",
             text:
-              "Pi 正在使用工具：" +
-              publicSnippet(String(event.toolName || "工具"), 80),
+              tr("Pi 正在使用工具：") +
+              publicSnippet(String(event.toolName || tr("工具")), 80),
           });
         else if (event.type === "auto_retry_start")
-          emit({ type: "progress", text: "Pi 正在重试原生模型请求。" });
+          emit({ type: "progress", text: tr("Pi 正在重试原生模型请求。") });
         else if (event.type === "compaction_start")
-          emit({ type: "progress", text: "Pi 正在整理上下文。" });
+          emit({ type: "progress", text: tr("Pi 正在整理上下文。") });
         else if (event.type === "auto_retry_end" && event.success === false)
           lastReason = "error";
         else if (event.type === "extension_ui_request") {
@@ -251,14 +256,14 @@ export class PiAdapter implements AgentAdapter {
             return;
           }
           if (dialogs.has(id) || dialogs.size >= 30) {
-            finish("failed", "Pi 返回了冲突或过多的输入请求。");
+            finish("failed", tr("Pi 返回了冲突或过多的输入请求。"));
             return;
           }
           if (!["confirm", "select", "input"].includes(method)) {
             write({ type: "extension_ui_response", id, cancelled: true });
             emit({
               type: "progress",
-              text: "Pi 的此类界面交互暂不支持，已取消该交互。",
+              text: tr("Pi 的此类界面交互暂不支持，已取消该交互。"),
             });
             return;
           }
@@ -269,9 +274,9 @@ export class PiAdapter implements AgentAdapter {
             choices.set("decline", "false");
             choices.set("cancel", "cancel");
             Object.assign(choiceLabels, {
-              accept: "确认",
-              decline: "拒绝",
-              cancel: "取消",
+              accept: tr("确认"),
+              decline: tr("拒绝"),
+              cancel: tr("取消"),
             });
           } else if (method === "select") {
             if (
@@ -291,7 +296,7 @@ export class PiAdapter implements AgentAdapter {
               choiceLabels[key] = publicSnippet(option, 500);
             });
             choices.set("cancel", "cancel");
-            choiceLabels.cancel = "取消选择";
+            choiceLabels.cancel = tr("取消选择");
           }
           const dialog: Dialog = { method, choices };
           dialogs.set(id, dialog);
@@ -317,35 +322,36 @@ export class PiAdapter implements AgentAdapter {
             type: "question",
             requestId: id,
             input: method === "input",
-            text: publicSnippet(text || "Pi 请求补充信息", 2000),
+            text: publicSnippet(text || tr("Pi 请求补充信息"), 2000),
             choices: [...choices.keys()],
             choiceLabels,
           });
         }
       },
-      () => finish("failed", "Pi 协议连接已结束或记录无效，执行状态待核对。"),
+      () =>
+        finish("failed", tr("Pi 协议连接已结束或记录无效，执行状态待核对。")),
     );
     proc.stderr.resume();
     proc.on("error", () =>
-      finish("failed", "Pi 程序无法启动，请检查安装与执行权限。"),
+      finish("failed", tr("Pi 程序无法启动，请检查安装与执行权限。")),
     );
     proc.stdin.on("error", () =>
-      finish("failed", "Pi 输入连接中断，执行状态待核对。"),
+      finish("failed", tr("Pi 输入连接中断，执行状态待核对。")),
     );
     proc.on("close", () =>
-      finish("failed", "Pi 已断开且没有明确结束事件，请核对执行结果。"),
+      finish("failed", tr("Pi 已断开且没有明确结束事件，请核对执行结果。")),
     );
     const handle: RunHandle = {
       steer: async (text) => {
-        if (terminal || disposed) throw Error("Pi 没有活动执行。");
+        if (terminal || disposed) throw Error(tr("Pi 没有活动执行。"));
         await rpc("steer", { message: text });
       },
       stop: async () => {
-        if (terminal || disposed) throw Error("Pi 没有可确认的活动连接。");
+        if (terminal || disposed) throw Error(tr("Pi 没有可确认的活动连接。"));
         for (const id of [...dialogs.keys()]) cancelDialog(id, true);
         void rpc("abort").catch(() => {
           if (!terminal)
-            finish("failed", "Pi 停止请求未确认，请核对原生执行。");
+            finish("failed", tr("Pi 停止请求未确认，请核对原生执行。"));
         });
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -360,7 +366,10 @@ export class PiAdapter implements AgentAdapter {
             ),
           ]);
         } catch {
-          finish("failed", "Pi 未在时限内确认停止，请人工核对，已有修改保留。");
+          finish(
+            "failed",
+            tr("Pi 未在时限内确认停止，请人工核对，已有修改保留。"),
+          );
         } finally {
           clearTimeout(timer);
         }
@@ -368,9 +377,10 @@ export class PiAdapter implements AgentAdapter {
       async answer(requestId, choice) {
         const id = String(requestId),
           dialog = dialogs.get(id);
-        if (!dialog || terminal || disposed) throw Error("Pi 输入请求已失效。");
+        if (!dialog || terminal || disposed)
+          throw Error(tr("Pi 输入请求已失效。"));
         if (dialog.method !== "input" && !dialog.choices.has(choice))
-          throw Error("Pi 选项无效。");
+          throw Error(tr("Pi 选项无效。"));
         const answer =
           dialog.method === "input" ? choice : dialog.choices.get(choice)!;
         write({
@@ -390,7 +400,11 @@ export class PiAdapter implements AgentAdapter {
     try {
       const state = await rpc("get_state");
       if (!state?.model) {
-        finish("failed", "Pi 尚未配置可用模型，请先在 Pi 中选择模型。", true);
+        finish(
+          "failed",
+          tr("Pi 尚未配置可用模型，请先在 Pi 中选择模型。"),
+          true,
+        );
         return handle;
       }
       if (typeof state.sessionId !== "string" || !state.sessionId)
@@ -401,11 +415,11 @@ export class PiAdapter implements AgentAdapter {
       submitted = true;
       const result = await rpc("prompt", { message: task.goal });
       if (result?.disposition === "handled")
-        finish("failed", "Pi 已由扩展处理该输入，但没有可核验的执行结果。");
+        finish("failed", tr("Pi 已由扩展处理该输入，但没有可核验的执行结果。"));
     } catch (error) {
       finish(
         "failed",
-        "Pi 未能接收任务或协议连接失败，请检查原生模型与登录配置。",
+        tr("Pi 未能接收任务或协议连接失败，请检查原生模型与登录配置。"),
         error instanceof RejectedCommand && error.command === "prompt",
       );
     }

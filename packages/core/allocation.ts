@@ -1,3 +1,5 @@
+import { translate } from "../i18n/index.cjs";
+import type { Locale } from "../contracts/index.js";
 import type {
   AgentCapability,
   AgentConnection,
@@ -61,19 +63,50 @@ export function normalizeAllocation(
 export function exclusionReason(
   agent: AgentConnection,
   required: AgentCapability[],
+  locale: Locale = "zh-CN",
 ): string | undefined {
-  if (!agent.selected) return "未接入";
-  if (!agent.available) return "当前不可用";
+  const tr = (source: string, values?: Record<string, string | number>) =>
+    translate(locale, source, values);
+  if (!agent.selected) return tr("未接入");
+  if (!agent.available) return tr("当前不可用");
   if (
     agent.supported === false ||
     !["codex", "claude", "opencode", "pi"].includes(agent.kind)
   )
-    return "尚未适配";
+    return tr("尚未适配");
   const caps = effectiveCapabilities(agent);
   const missing = required.filter((capability) => !caps[capability]);
   return missing.length
-    ? "不支持" + missing.map((capability) => labels[capability]).join("、")
+    ? tr("不支持{capabilities}", {
+        capabilities: missing
+          .map((capability) => tr(labels[capability]))
+          .join(locale === "en" ? ", " : "、"),
+      })
     : undefined;
+}
+
+export function rankedSettings(
+  settings?: AllocationSettings,
+): Required<AllocationSettings> {
+  const globalAgentOrder =
+    settings?.globalAgentOrder ??
+    (settings?.globalAgentId ? [settings.globalAgentId] : []);
+  const projectAgentOrders =
+    settings?.projectAgentOrders ??
+    Object.fromEntries(
+      Object.entries(settings?.projectAgentIds ?? {}).map(([path, id]) => [
+        path,
+        [id],
+      ]),
+    );
+  return {
+    globalAgentOrder,
+    projectAgentOrders,
+    globalAgentId: globalAgentOrder[0] ?? null,
+    projectAgentIds: Object.fromEntries(
+      Object.entries(projectAgentOrders).map(([path, ids]) => [path, ids[0]]),
+    ),
+  };
 }
 
 export function allocateAgent(input: {
@@ -83,18 +116,22 @@ export function allocateAgent(input: {
   request?: AllocationRequest;
   requiredCapabilities?: AgentCapability[];
   suggestedAgentId: string;
+  locale?: Locale;
 }): { agent: AgentConnection; allocation: AllocationDecision } {
+  const locale = input.locale || "zh-CN";
+  const tr = (source: string, values?: Record<string, string | number>) =>
+    translate(locale, source, values);
   const request = normalizeAllocation(input.request);
   const required = normalizeCapabilities([
     ...(request.requiredCapabilities || []),
     ...(input.requiredCapabilities || []),
   ]);
   const excluded = input.agents.flatMap((agent) => {
-    const reason = exclusionReason(agent, required);
+    const reason = exclusionReason(agent, required, locale);
     return reason ? [{ agentId: agent.id, reason }] : [];
   });
   const eligible = input.agents.filter(
-    (agent) => !exclusionReason(agent, required),
+    (agent) => !exclusionReason(agent, required, locale),
   );
   const skipped: string[] = [];
   const choose = (
@@ -108,12 +145,12 @@ export function allocateAgent(input: {
     if (!agent) {
       const why =
         excluded.find((candidate) => candidate.agentId === id)?.reason ||
-        "未找到该执行者";
+        tr("未找到该执行者");
       if (strict)
         throw Error(
-          "指定 Agent 无法承接任务：" + why + "；未改派给其他 Agent。",
+          tr("指定 Agent 无法承接任务：{why}；未改派给其他 Agent。", { why }),
         );
-      skipped.push(reason + "未采用（" + why + "）");
+      skipped.push(tr("{reason}未采用（{why}）", { reason, why }));
       return;
     }
     return {
@@ -121,7 +158,10 @@ export function allocateAgent(input: {
       allocation: {
         policyVersion: 1 as const,
         source,
-        reason: [...skipped, reason + "，交给 " + agent.name + "。"].join("；"),
+        reason: [
+          ...skipped,
+          tr("{reason}，交给 {name}。", { reason, name: agent.name }),
+        ].join(locale === "en" ? "; " : "；"),
         requiredCapabilities: required,
         modelSuggestedAgentId: input.suggestedAgentId,
         excluded,
@@ -131,37 +171,46 @@ export function allocateAgent(input: {
   const explicit = choose(
     request.targetAgentId,
     "explicit",
-    "按本次指定",
+    tr("按本次指定"),
     true,
   );
   if (explicit) return explicit;
-  const project = choose(
-    input.settings.projectAgentIds[input.cwd],
-    "project-default",
-    "使用项目默认 Agent",
+  const { globalAgentOrder, projectAgentOrders } = rankedSettings(
+    input.settings,
   );
-  if (project) return project;
-  const global = choose(
-    input.settings.globalAgentId,
-    "global-default",
-    "使用全局默认 Agent",
-  );
-  if (global) return global;
+  const projectOrder = projectAgentOrders[input.cwd] ?? [];
+  for (const [index, id] of projectOrder.entries()) {
+    const project = choose(
+      id,
+      "project-default",
+      tr("项目优先级第 {index} 位（{id}）", { index: index + 1, id }),
+    );
+    if (project) return project;
+  }
+  for (const [index, id] of globalAgentOrder.entries()) {
+    if (projectOrder.includes(id)) continue;
+    const global = choose(
+      id,
+      "global-default",
+      tr("全局优先级第 {index} 位（{id}）", { index: index + 1, id }),
+    );
+    if (global) return global;
+  }
   if (!eligible.length)
-    throw Error("没有满足本次要求的已接入 Agent，任务尚未启动。");
+    throw Error(tr("没有满足本次要求的已接入 Agent，任务尚未启动。"));
   if (eligible.length === 1)
     return choose(
       eligible[0].id,
       "single-candidate",
-      "只有一个符合要求的 Agent",
+      tr("只有一个符合要求的 Agent"),
     )!;
   const suggested = choose(
     input.suggestedAgentId,
     "model",
-    "采用总控的执行者建议",
+    tr("采用总控的执行者建议"),
   );
   if (suggested) return suggested;
   throw Error(
-    "总控未给出符合要求的执行者，请明确选择 Agent 后重试；任务尚未启动。",
+    tr("总控未给出符合要求的执行者，请明确选择 Agent 后重试；任务尚未启动。"),
   );
 }

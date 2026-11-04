@@ -1,3 +1,6 @@
+import { workRequest } from "./memory-preferences.js";
+import { conversationMessages } from "../contracts/completion.js";
+import { rankedSettings } from "./allocation.js";
 import type { AllocationRequest, Snapshot, Task } from "../contracts/index.js";
 
 const historyRequest =
@@ -50,6 +53,10 @@ export function routingContext(
     ids.has(id.toLowerCase()) || names(label);
   const historical = historyRequest.test(query);
   const continuation = followUp.test(query);
+  const acrossProjects =
+    /所有|全部|全局|跨项目|其他项目|在跑|正在|在干[嘛什么]|在做[啥什么]|哪些任务|进度|进展|\b(?:all|across|running|status|progress)\b/i.test(
+      query,
+    );
   const words =
     historical || continuation
       ? Array.from(segmenter.segment(query))
@@ -68,7 +75,18 @@ export function routingContext(
   const recentIds = new Set(lastLink?.taskIds || []);
   const titleMatch = (title: string) =>
     words.some((w) => title.toLowerCase().includes(w));
+  const focused =
+    Boolean(targetTaskId) ||
+    snapshot.tasks.some((t) => refers(t.id, t.title)) ||
+    (continuation && recentIds.size > 0);
+  const browseHistory =
+    historical &&
+    !focused &&
+    /哪些|多少|几个|几项|都|列表|列出|最近|回顾|历史任务[？?。!！]*$|\b(?:list|which|how many|recent|history)\b/i.test(
+      query,
+    );
   const specificHistory =
+    !focused &&
     words.length > 0 &&
     snapshot.tasks.some((t) => !isOpen(t) && titleMatch(t.title));
   const chatOnly = !targetTaskId && greeting.test(query.trim());
@@ -79,11 +97,12 @@ export function routingContext(
       if (t.id === targetTaskId) return 100;
       if (ids.has(t.id.toLowerCase())) return 90;
       if (names(t.title)) return 80;
-      if (recentIds.has(t.id) && (continuation || isOpen(t))) return 70;
+      if (recentIds.has(t.id) && (continuation || (t.cwd === cwd && isOpen(t))))
+        return 70;
       if (specificHistory && titleMatch(t.title))
         return t.cwd === cwd ? 62 : 61;
-      if (isOpen(t)) return t.cwd === cwd ? 50 : 40;
-      return historical && !specificHistory ? (t.cwd === cwd ? 20 : 10) : 0;
+      if (isOpen(t)) return t.cwd === cwd ? 50 : acrossProjects ? 40 : 0;
+      return browseHistory && !specificHistory ? (t.cwd === cwd ? 58 : 57) : 0;
     },
     (t) => t.updatedAt,
   );
@@ -94,6 +113,7 @@ export function routingContext(
     cwd: short(t.cwd, 320),
     agentId: t.agentId,
     status: t.status,
+    ...(!isOpen(t) ? { updatedAt: t.updatedAt } : {}),
     revision: t.revision,
     progress: short(t.progress, 200),
   }));
@@ -124,13 +144,14 @@ export function routingContext(
   const selectedAgents = snapshot.agents.filter(
     (a) => a.selected && a.available && a.supported !== false,
   );
-  const prefs = snapshot.allocationSettings;
-  const projectDefault = prefs?.projectAgentIds[cwd];
+  const prefs = rankedSettings(snapshot.allocationSettings);
+  const projectOrder = prefs.projectAgentOrders[cwd] || [];
+  const priority = [...new Set([...projectOrder, ...prefs.globalAgentOrder])];
   const agents = candidates(selectedAgents, 16, (a) =>
     a.id === allocation?.targetAgentId || refers(a.id, a.name)
-      ? 3
-      : [projectDefault, prefs?.globalAgentId].includes(a.id)
-        ? 2
+      ? priority.length + 2
+      : priority.includes(a.id)
+        ? priority.length + 1 - priority.indexOf(a.id)
         : 1,
   ).map(({ id, name, kind, capabilities }) => ({
     id,
@@ -191,9 +212,7 @@ export function routingContext(
       progress: short(s.progress, 160),
     })),
   }));
-  const nativeIds = new Set(
-    observations.flatMap((o) => o.sessions.map((s) => s.id)),
-  );
+
   const questions = candidates(chatOnly ? [] : snapshot.questions, 8, (q) =>
     q.resolved || (q.taskId && !visible.has(q.taskId))
       ? 0
@@ -207,7 +226,7 @@ export function routingContext(
     text: short(q.text, 300),
     choices: q.choices.slice(0, 6).map((choice) => short(choice, 100)),
   }));
-  const conversation = recentMessages
+  const conversation = conversationMessages(recentMessages, snapshot)
     .filter((m) => {
       if (chatOnly || m.routing?.status === "pending") return false;
       const source =
@@ -228,9 +247,12 @@ export function routingContext(
       )
         return false;
       if (m.taskIds.length) return m.taskIds.some((id) => visible.has(id));
-      if (m.completion?.nativeId)
-        return continuation && nativeIds.has(m.completion.nativeId);
+      if (m.completion?.nativeId) return false;
       return !m.request?.cwd || m.request.cwd === cwd;
+    })
+    .flatMap((m) => {
+      const text = workRequest(m);
+      return text ? [{ ...m, text }] : [];
     })
     .slice(-8)
     .map((m) => ({
@@ -251,8 +273,10 @@ export function routingContext(
     allocation: {
       ...allocation,
       preferences: {
-        globalAgentId: prefs?.globalAgentId || null,
-        projectAgentIds: projectDefault ? { [cwd]: projectDefault } : {},
+        globalAgentId: prefs.globalAgentId,
+        projectAgentIds: projectOrder.length ? { [cwd]: projectOrder[0] } : {},
+        globalAgentOrder: prefs.globalAgentOrder,
+        projectAgentOrders: projectOrder.length ? { [cwd]: projectOrder } : {},
       },
     },
     input: { text, cwd, targetTaskId },

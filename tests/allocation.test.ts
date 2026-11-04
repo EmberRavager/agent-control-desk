@@ -33,6 +33,8 @@ const agent = (
 const agents = [agent("codex"), agent("claude", "claude"), agent("pi", "pi")];
 const defaults: AllocationSettings = {
   globalAgentId: null,
+  globalAgentOrder: [],
+  projectAgentOrders: {},
   projectAgentIds: {},
 };
 const model = {
@@ -115,6 +117,70 @@ test("allocation priority is explicit, project default, global default, sole can
   assert.equal(choose({ settings: defaults }).agent.id, "pi");
 });
 
+test("project and global rankings skip ineligible executors in priority order", () => {
+  const input = {
+    cwd: "/project",
+    agents,
+    settings: {
+      globalAgentId: "codex",
+      projectAgentIds: { "/project": "claude" },
+      globalAgentOrder: ["codex", "pi"],
+      projectAgentOrders: { "/project": ["claude", "pi"] },
+    },
+    requiredCapabilities: ["steer" as const],
+    suggestedAgentId: "codex",
+  };
+  assert.equal(allocateAgent(input).agent.id, "pi");
+  assert.equal(allocateAgent({ ...input, cwd: "/other" }).agent.id, "codex");
+  assert.equal(
+    allocateAgent({ ...input, request: { targetAgentId: "codex" } }).agent.id,
+    "codex",
+  );
+  assert.equal(
+    allocateAgent({
+      ...input,
+      agents: agents.map((a) =>
+        a.id === "pi" ? { ...a, available: false } : a,
+      ),
+    }).agent.id,
+    "codex",
+  );
+});
+
+test("legacy settings migrate to rankings and an offline executor can keep its saved place", () => {
+  const x = fixture(async () => ({ reply: "", actions: [] }));
+  try {
+    x.store.put("settings", "allocation", {
+      globalAgentId: "pi",
+      projectAgentIds: { [x.directory]: "claude" },
+    });
+    assert.deepEqual(x.runtime.allocationSettings().globalAgentOrder, ["pi"]);
+    assert.deepEqual(x.runtime.allocationSettings().projectAgentOrders, {
+      [x.directory]: ["claude"],
+    });
+    x.runtime.configureAllocation({ agentIds: ["codex", "pi"] });
+    x.store.put("agents", "pi", { ...agents[2], available: false });
+    x.runtime.configureAllocation({ agentIds: ["pi", "codex"] });
+    const saved = x.runtime.snapshot().allocationSettings!;
+    assert.equal(saved.globalAgentId, "pi");
+    assert.deepEqual(saved.globalAgentOrder, ["pi", "codex"]);
+    assert.throws(
+      () => x.runtime.configureAllocation({ agentIds: ["pi", "pi"] }),
+      /重复/,
+    );
+    assert.throws(() =>
+      x.runtime.configureAllocation({ agentIds: ["missing"] }),
+    );
+    assert.deepEqual(x.runtime.allocationSettings(), saved);
+    x.runtime.configureAllocation({ agentId: "codex" });
+    assert.deepEqual(x.runtime.allocationSettings().globalAgentOrder, [
+      "codex",
+    ]);
+  } finally {
+    x.close();
+  }
+});
+
 test("hard capability constraints exclude defaults; explicit mismatches never silently switch", () => {
   const input = {
     agents,
@@ -125,7 +191,7 @@ test("hard capability constraints exclude defaults; explicit mismatches never si
   };
   const result = allocateAgent(input);
   assert.equal(result.agent.id, "codex");
-  assert.match(result.allocation.reason, /全局默认 Agent未采用/);
+  assert.match(result.allocation.reason, /全局优先级第 1 位（claude）未采用/);
   assert.deepEqual(result.allocation.excluded, [
     { agentId: "claude", reason: "不支持执行中追加" },
   ]);
@@ -444,6 +510,12 @@ test("allocation HTTP settings validate, canonicalize paths, persist and support
   try {
     for (const a of agents) app.runtime.store.put("agents", a.id, a);
     assert.ok(app.descriptor.capabilities?.includes("agent-allocation"));
+    assert.ok(app.descriptor.capabilities?.includes("allocation-priority"));
+    assert.equal(
+      (await put({ agentId: "codex", agentIds: ["pi"] })).status,
+      400,
+    );
+    assert.equal((await put({ agentIds: ["codex", "codex"] })).status, 400);
     assert.equal(
       (await fetch(app.descriptor.url + "/api/allocation")).status,
       401,
@@ -461,12 +533,14 @@ test("allocation HTTP settings validate, canonicalize paths, persist and support
     assert.equal((await put({ agentId: "codex", extra: true })).status, 400);
     assert.equal((await put({ agentId: "codex" })).status, 200);
     const result = await put({
-      agentId: "pi",
+      agentIds: ["pi", "claude"],
       projectPath: join(project, "."),
     });
     assert.equal(result.status, 200);
     assert.deepEqual(await result.json(), {
       globalAgentId: "codex",
+      globalAgentOrder: ["codex"],
+      projectAgentOrders: { [realpathSync(project)]: ["pi", "claude"] },
       projectAgentIds: { [realpathSync(project)]: "pi" },
     });
     const saved = app.runtime.snapshot().allocationSettings;
@@ -500,8 +574,12 @@ test("allocation HTTP settings validate, canonicalize paths, persist and support
   try {
     assert.equal(runtime.allocationSettings().globalAgentId, "codex");
     assert.equal(runtime.allocationSettings().projectAgentIds[project], "pi");
+    assert.deepEqual(runtime.allocationSettings().projectAgentOrders[project], [
+      "pi",
+      "claude",
+    ]);
     rmSync(project, { recursive: true });
-    runtime.configureAllocation({ agentId: null, projectPath: project });
+    runtime.configureAllocation({ agentIds: [], projectPath: project });
     runtime.configureAllocation({ agentId: null });
     assert.deepEqual(runtime.allocationSettings(), defaults);
   } finally {
