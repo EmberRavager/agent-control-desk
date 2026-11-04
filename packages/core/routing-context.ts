@@ -7,7 +7,7 @@ const followUp =
 const greeting =
   /^(?:你好呀?|您好|嗨|早上好|晚上好|hello|hi|hey)[\s!！。.?？]*$/i;
 const genericWord =
-  /^(?:任务|以前|上次|上周|昨天|之前|历史|进度|以前|那个|完成|查看|一下|继续|哪些|之前|previous|task|status|history|the|that|what)$/i;
+  /^(?:任务|以前|上次|上周|昨天|之前|历史|进度|那个|完成|查看|一下|继续|哪些|previous|task|status|history|the|that|what)$/i;
 const segmenter = new Intl.Segmenter("zh", { granularity: "word" });
 
 function short(text: string, limit: number) {
@@ -91,7 +91,7 @@ export function routingContext(
     id: t.id,
     title: t.title,
     goal: short(t.goal, 480),
-    cwd: t.cwd === cwd ? cwd : short(t.cwd, 320),
+    cwd: short(t.cwd, 320),
     agentId: t.agentId,
     status: t.status,
     revision: t.revision,
@@ -100,6 +100,16 @@ export function routingContext(
   const visible = new Set(tasks.map((t) => t.id));
   const taskScope = {
     selectedTaskId: targetTaskId || null,
+    namedTaskIds: chosen
+      .filter(
+        (t) =>
+          ids.has(t.id.toLowerCase()) ||
+          (names(t.title) &&
+            !snapshot.tasks.some(
+              (other) => other.id !== t.id && other.title === t.title,
+            )),
+      )
+      .map((t) => t.id),
     recentTaskIds: [...recentIds].filter((id) => visible.has(id)),
     sameDirectoryTaskIds: chosen.filter((t) => t.cwd === cwd).map((t) => t.id),
     otherDirectoryTaskIds: chosen.filter((t) => t.cwd !== cwd).map((t) => t.id),
@@ -151,8 +161,11 @@ export function routingContext(
     nextRunAt,
     updatedAt,
   }));
-  const observations = candidates(snapshot.observations || [], 8, (o) =>
-    o.sessions.some((s) => refers(s.id, s.taskTitle || s.title)) ? 2 : 1,
+  const observations = candidates(
+    chatOnly ? [] : snapshot.observations || [],
+    8,
+    (o) =>
+      o.sessions.some((s) => refers(s.id, s.taskTitle || s.title)) ? 2 : 1,
   ).map((o) => ({
     agentId: o.agentId,
     state: o.state,
@@ -173,7 +186,7 @@ export function routingContext(
     ).map((s) => ({
       id: s.id,
       title: short(s.taskTitle || s.title, 140),
-      cwd: s.cwd,
+      cwd: short(s.cwd, 320),
       status: s.status,
       progress: short(s.progress, 160),
     })),
@@ -181,7 +194,7 @@ export function routingContext(
   const nativeIds = new Set(
     observations.flatMap((o) => o.sessions.map((s) => s.id)),
   );
-  const questions = candidates(snapshot.questions, 8, (q) =>
+  const questions = candidates(chatOnly ? [] : snapshot.questions, 8, (q) =>
     q.resolved || (q.taskId && !visible.has(q.taskId))
       ? 0
       : q.taskId === targetTaskId && targetTaskId
@@ -192,6 +205,7 @@ export function routingContext(
     taskId: q.taskId,
     kind: q.kind,
     text: short(q.text, 300),
+    choices: q.choices.slice(0, 6).map((choice) => short(choice, 100)),
   }));
   const conversation = recentMessages
     .filter((m) => {

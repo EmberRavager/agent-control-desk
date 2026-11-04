@@ -376,20 +376,24 @@ export async function route(
       throw Error("总控动作与用户选中的任务不一致，未执行操作");
     return { ...action, expectedRevision: observedTask.revision };
   });
-  // A truncated candidate list cannot carry out a destructive bulk operation.
+  // If the visible candidates are incomplete, bind mutations to a real reference.
   const bulk =
     /全部|所有|全都|都(?:先)?停|批量|每(?:个|一项)|\b(?:all|every|both)\b/i.test(
       text,
     );
-  if (
-    bulk &&
-    actions.some(
-      (a) =>
-        ((a.type === "stop" || a.type === "supplement") &&
-          context.taskScope.omittedOpenTasks > 0) ||
-        (a.type === "schedule_control" && context.omittedSchedules > 0),
-    )
-  ) {
+  const partialMutation = actions.some((a) => {
+    if (a.type === "schedule_control")
+      return bulk && context.omittedSchedules > 0;
+    if (a.type !== "stop" && a.type !== "supplement") return false;
+    if (!context.taskScope.omittedOpenTasks) return false;
+    const recent = context.taskScope.recentTaskIds;
+    const grounded =
+      a.taskId === targetTaskId ||
+      context.taskScope.namedTaskIds.includes(a.taskId) ||
+      (recent.length === 1 && recent[0] === a.taskId);
+    return bulk || !grounded;
+  });
+  if (partialMutation) {
     return {
       reply: "",
       actions: [

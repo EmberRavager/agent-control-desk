@@ -180,3 +180,62 @@ test("a partial candidate set cannot silently apply a bulk stop or a mutation fo
     /不存在|上下文/,
   );
 });
+
+test("a partial list cannot resolve an ungrounded mutation and still permits an explicit selected task", async () => {
+  const s = fixture(Array.from({ length: 30 }, (_, i) => task(i, "running")));
+  const t = s.tasks[0],
+    action = { type: "stop", taskId: t.id };
+  assert.deepEqual(
+    (await capture(s, "那个先停一下", [action])).decision.actions.map(
+      (a) => a.type,
+    ),
+    ["clarify"],
+  );
+  assert.deepEqual(
+    (await capture(s, "那个先停一下", [action], t.id)).decision.actions.map(
+      (a) => a.type,
+    ),
+    ["stop"],
+  );
+});
+test("non-greeting chat, an omitted title collision and a prior bulk status never export the full archive", async () => {
+  const archived = Array.from({ length: 500 }, (_, i) => task(i));
+  const state = fixture(archived);
+  state.messages = [
+    {
+      id: "status-request",
+      role: "user",
+      text: "查看所有任务",
+      taskIds: [],
+      createdAt: at,
+      request: { cwd },
+      routing: { status: "completed", actions: ["status"] },
+    },
+    {
+      id: "status-reply",
+      role: "assistant",
+      replyTo: "status-request",
+      text: "PRIVATE BULK LIST",
+      taskIds: [],
+      createdAt: at,
+    },
+  ];
+  const plain = await capture(state, "我们先讨论一下思路");
+  assert.equal(plain.input.tasks.length, 0);
+  assert.ok(!JSON.stringify(plain.input).includes("PRIVATE BULK LIST"));
+  const busy = fixture(
+    Array.from({ length: 45 }, (_, i) => ({
+      ...task(i, "running"),
+      title: `检查项目${i}`,
+    })),
+  );
+  const missing = busy.tasks.at(-1)!;
+  const r = await capture(busy, "请检查新收到的资料", [
+    { type: "create", title: missing.title, goal: "检查", agentId: "codex" },
+  ]);
+  assert.ok(!r.input.tasks.some((x: Task) => x.id === missing.id));
+  assert.deepEqual(
+    r.decision.actions.map((a) => a.type),
+    ["clarify"],
+  );
+});
