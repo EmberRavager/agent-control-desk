@@ -2,9 +2,9 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-[![GitHub Releases](https://img.shields.io/badge/macOS_Apple_Silicon-Releases-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases)
+[![Download for macOS Apple Silicon](https://img.shields.io/badge/macOS_Apple_Silicon-Download_DMG-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.10/Agent-Control-Desk-0.1.10-mac-arm64.dmg)
 
-Check [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) for available test builds, or [build from source](docs/distribution.md#从源码构建).
+[Download ZIP](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.10/Agent-Control-Desk-0.1.10-mac-arm64.zip) · [All releases](https://github.com/EmberRavager/agent-control-desk/releases) · [Build from source](docs/distribution.md#从源码构建)
 
 v0.1.10 test packages target Macs with Apple Silicon (M1 or later). The app is ad-hoc signed and has not been notarized by Apple.
 
@@ -76,7 +76,7 @@ Open **Settings → Personal memory** to manage preferences and workflows across
 
 ### 1. Install ACD
 
-Once the macOS ARM64 packages are published, copy `Agent Control Desk.app` from the DMG or ZIP into Applications and open it. The desktop package includes its runtime; Node.js is not required. Locally built packages are written to `release/`. See [installation and distribution](docs/distribution.md) for versions, builds, and upgrades.
+On macOS ARM64, copy `Agent Control Desk.app` from the DMG or ZIP into Applications and open it. The desktop package includes its runtime; Node.js is not required. Locally built packages are written to `release/`. See [installation and distribution](docs/distribution.md) for versions, builds, and upgrades.
 
 Current packages are for local testing, use ad-hoc signing, and are not Apple-notarized. Native Windows builds and operation still need validation.
 

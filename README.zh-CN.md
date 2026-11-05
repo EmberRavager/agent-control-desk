@@ -2,9 +2,9 @@
 
 [English](README.md) | **简体中文**
 
-[![GitHub 发布页](https://img.shields.io/badge/macOS_Apple_Silicon-Releases-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases)
+[![下载 Mac 桌面端](https://img.shields.io/badge/macOS_Apple_Silicon-%E4%B8%8B%E8%BD%BD_DMG-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.10/Agent-Control-Desk-0.1.10-mac-arm64.dmg)
 
-可在 [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) 查看已发布的下载，或先[从源码构建](docs/distribution.md#从源码构建)。
+[下载 ZIP 压缩包](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.10/Agent-Control-Desk-0.1.10-mac-arm64.zip) · [全部版本](https://github.com/EmberRavager/agent-control-desk/releases) · [从源码构建](docs/distribution.md#从源码构建)
 
 v0.1.10 测试包适用于 Apple Silicon（M1 及更新芯片）的 Mac。应用采用 ad-hoc 签名，尚未完成 Apple 公证。
 
@@ -72,7 +72,7 @@ ACD 当前处于本地测试阶段，当前桌面构建目标为 Mac ARM64。
 
 ### 1. 安装 ACD
 
-Mac ARM64 安装包发布后，使用 DMG 或 ZIP 中的 `Agent Control Desk.app`，复制到 Applications 后打开。桌面包自带运行时，无需安装 Node.js。本地构建的安装包位于 `release/`；版本、构建和升级步骤见 [安装与分发](docs/distribution.md)。
+Mac ARM64 使用 DMG 或 ZIP 中的 `Agent Control Desk.app`，复制到 Applications 后打开。桌面包自带运行时，无需安装 Node.js。本地构建的安装包位于 `release/`；版本、构建和升级步骤见 [安装与分发](docs/distribution.md)。
 
 当前安装包用于本地测试，使用 ad-hoc 签名，尚未完成 Apple 公证。Windows 原生构建与运行仍待验收。
 

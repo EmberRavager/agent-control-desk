@@ -4,7 +4,7 @@
 
 ## 安装方式
 
-在 [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) 查看已发布版本。发布后可从对应版本下载 DMG、ZIP 或 CLI 包，并使用随包提供的 SHA256SUMS 核对文件；此前可[从源码构建](#从源码构建)。
+在 [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) 查看已发布版本。可从对应版本下载 DMG、ZIP 或 CLI 包，并使用随包提供的 SHA256SUMS 核对文件；也可[从源码构建](#从源码构建)。
 
 Mac 的 DMG 中包含 `Agent Control Desk.app`，复制到 Applications 后打开；ZIP 也包含同一应用。桌面包自带 Electron/Node，不需要另外安装 Node、项目依赖或 TypeScript。当前本机产物仅作 ad-hoc 签名，没有 Developer ID 签名与 Apple 公证，作为测试版提供。
 
@@ -56,7 +56,7 @@ CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --config electron-builder
 
 全部检查通过后才生成 SHA256SUMS，先上传到草稿 Release，再发布为预发行版。工作流使用本次 GitHub Actions 的仓库令牌，不依赖维护者本机的 `gh` 登录；需要仓库允许工作流写入 Releases。也可从 Actions 手动选择已有版本标签重试。已公开的同名 Release 会拒绝覆盖，需创建新版本。
 
-当前工作流已加入源码，GitHub 托管 runner 的实际构建和附件下载仍需在首次发布时核验。发布完成前，README 仅链接 Releases 页面，不承诺某个附件已经存在。
+v0.1.10 已通过 GitHub 托管 runner 的测试、构建与包内后台验收，并公开发布为预发行版。安装包和 CLI 包均提供 SHA256SUMS，README 下载按钮指向已发布附件。
 
 ## 可重复验收
 
