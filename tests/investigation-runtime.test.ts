@@ -566,3 +566,120 @@ test("a factual clarification from an inquiry preserves the original question wh
     f.close();
   }
 });
+
+test("on-demand history finds reports older than the recent 200-message window", async () => {
+  let evidence: string[] = [];
+  const f = fixture(
+    async (
+      _c,
+      _k,
+      snapshot,
+      _text,
+      _cwd,
+      _target,
+      _signal,
+      _allocation,
+      _memories,
+      context,
+    ) => {
+      assert.ok(snapshot.messages.length <= 200);
+      assert.ok(
+        !snapshot.messages.some((message) => message.id === "native-report"),
+      );
+      if (!context)
+        return {
+          reply: "",
+          actions: [
+            { type: "history", query: "GitHub", sourceId: "native-original" },
+          ],
+        };
+      evidence = context.history.entries.flatMap((entry) => entry.excerpts);
+      return { reply: "Original historical record found.", actions: [] };
+    },
+    true,
+  );
+  try {
+    for (let i = 0; i < 205; i++)
+      f.store.message({
+        id: "later-" + i,
+        role: "user",
+        text: "Unrelated later message " + i,
+        taskIds: [],
+        createdAt: new Date().toISOString(),
+      });
+    assert.equal(f.runtime.snapshot().messages.length, 200);
+    const m = f.runtime.receive("GitHub提交了吗", f.directory);
+    await until(
+      () => f.store.getMessage(m.id)?.routing?.status === "completed",
+    );
+    assert.ok(evidence.some((text) => text.includes("GitHub commit exists")));
+    assert.equal(f.runs.length, 0);
+    assert.ok(f.runtime.snapshot().messages.length <= 200);
+  } finally {
+    f.close();
+  }
+});
+
+test("full-index history keeps withheld and excluded native reports private", async () => {
+  let serialized = "";
+  const f = fixture(
+    async (
+      _c,
+      _k,
+      _snapshot,
+      _text,
+      _cwd,
+      _target,
+      _signal,
+      _allocation,
+      _memories,
+      context,
+    ) => {
+      if (!context)
+        return { reply: "", actions: [{ type: "history", query: "GitHub" }] };
+      serialized = JSON.stringify(context.history);
+      return { reply: "Visible historical evidence checked.", actions: [] };
+    },
+    true,
+  );
+  try {
+    f.runtime.updateObservations([
+      {
+        agentId: "codex",
+        state: "connected",
+        message: "Fixture metadata",
+        sessions: [],
+        excludedSessionIds: ["native-guardian"],
+      },
+    ]);
+    for (const [id, status, nativeId, marker] of [
+      ["withheld", "withheld", "native-withheld", "FAKE_WITHHELD_BODY"],
+      ["guardian", "ready", "native-guardian", "FAKE_GUARDIAN_BODY"],
+    ] as const)
+      f.store.message({
+        id,
+        role: "assistant",
+        text: "GitHub " + marker,
+        taskIds: [],
+        createdAt: new Date().toISOString(),
+        completion: { id, title: "GitHub delivery", status, nativeId },
+      });
+    for (let i = 0; i < 205; i++)
+      f.store.message({
+        id: "noise-" + i,
+        role: "user",
+        text: "Unrelated later message " + i,
+        taskIds: [],
+        createdAt: new Date().toISOString(),
+      });
+    const m = f.runtime.receive("GitHub提交了吗", f.directory);
+    await until(
+      () => f.store.getMessage(m.id)?.routing?.status === "completed",
+    );
+    assert.match(serialized, /GitHub commit exists/);
+    assert.doesNotMatch(serialized, /FAKE_WITHHELD_BODY|FAKE_GUARDIAN_BODY/);
+    assert.equal(f.runs.length, 0);
+  } finally {
+    f.close();
+  }
+});

@@ -174,8 +174,9 @@ export class Store {
   getMessage(id: string): Message | undefined {
     return this.messages.get(id);
   }
-  history(): Message[] {
-    return [...this.messages.values()].slice(-200);
+  history(scope: "recent" | "all" = "recent"): Message[] {
+    const messages = [...this.messages.values()];
+    return scope === "all" ? messages : messages.slice(-200);
   }
   private flush() {
     for (const row of this.db

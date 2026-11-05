@@ -2,11 +2,11 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-[![Download for macOS Apple Silicon](https://img.shields.io/badge/macOS_Apple_Silicon-Download_DMG-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.9/Agent-Control-Desk-0.1.9-mac-arm64.dmg)
+[![GitHub Releases](https://img.shields.io/badge/macOS_Apple_Silicon-Releases-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases)
 
-[Download ZIP](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.9/Agent-Control-Desk-0.1.9-mac-arm64.zip) · [All releases](https://github.com/EmberRavager/agent-control-desk/releases)
+v0.1.9 packages have been built locally and are awaiting publication. Check [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) for available downloads, or [build from source](docs/distribution.md#从源码构建).
 
-v0.1.9 test release for Macs with Apple Silicon (M1 or later). The app is ad-hoc signed and has not been notarized by Apple.
+v0.1.9 test packages target Macs with Apple Silicon (M1 or later). The app is ad-hoc signed and has not been notarized by Apple.
 
 **One conversation. All your agents.**
 
@@ -14,7 +14,7 @@ Agent Control Desk (ACD) is a local control center for **task routing and multi-
 
 Each task has its own execution session. Keep sending new work, add requirements to an existing task, answer questions, request a stop, or continue a revision. The desktop app, CLI, and personal WeChat channel share the same local service and task state.
 
-ACD is currently a local test release, with a desktop package available for macOS ARM64.
+ACD is currently in local testing. A macOS ARM64 desktop package has been built and is awaiting publication.
 
 ## Why I built ACD
 
@@ -39,7 +39,8 @@ Configure the supervisor model separately. Execution agents retain their own mod
 - **One entry point, separate execution sessions.** New tasks keep their own goals, progress, and results. Continuing a task preserves its original agent and session.
 - **Work across projects in parallel.** Non-overlapping directories can run concurrently. Tasks in the same directory or a parent/child directory wait for access while you keep sending messages. Observed native Codex executions also participate in directory occupancy checks.
 - **Handle questions centrally.** Answer task questions and supported native approval requests from the control conversation, and see what needs your attention.
-- **Follow through to delivery.** The supervisor compares task goals with public results and publishes a summary and next-step suggestions when it identifies a new delivery. Managed tasks enter review before you accept them as complete or request another revision. Suggestions do not start new work automatically.
+- **Follow through to delivery.** The supervisor compares task goals with public results and publishes a summary and next-step suggestions when it identifies a new delivery. Tasks that produce deliverables enter review before you accept them as complete or request another revision. Answer-only tasks complete when they return a response. Suggestions do not start new work automatically.
+- **Check earlier work.** When evidence is missing, the supervisor retrieves bounded excerpts from saved local records. If an identified source still lacks the answer, Codex can be asked in an isolated read-only fork. Other agents do not yet support this inquiry operation. See [history lookup and inquiry](docs/routing.md#历史补查与执行者核实).
 - **Observe native sessions.** View current sessions from connected Codex installations, with task titles, goals, current steps, blockers, and next steps. This is read-only observation, without importing full chat histories.
 - **Keep conversations and drafts.** Task state and the control conversation persist locally. Drafts and unconfirmed sends survive reopening the window. Search and locate tasks, or retry understanding a failed message that has not entered the action-application stage.
 
@@ -75,7 +76,7 @@ Open **Settings → Personal memory** to manage preferences and workflows across
 
 ### 1. Install ACD
 
-On macOS ARM64, copy `Agent Control Desk.app` from the DMG or ZIP into Applications and open it. The desktop package includes its runtime; Node.js is not required. Locally built packages are written to `release/`. See [installation and distribution](docs/distribution.md) for versions, builds, and upgrades.
+Once the macOS ARM64 packages are published, copy `Agent Control Desk.app` from the DMG or ZIP into Applications and open it. The desktop package includes its runtime; Node.js is not required. Locally built packages are written to `release/`. See [installation and distribution](docs/distribution.md) for versions, builds, and upgrades.
 
 Current packages are for local testing, use ad-hoc signing, and are not Apple-notarized. Native Windows builds and operation still need validation.
 
@@ -193,6 +194,8 @@ Detailed guides are currently written in Chinese.
 | [Development guide](docs/development.md)                 | Development commands, CLI operations, project structure, and packaging     |
 | [Architecture](docs/architecture.md)                     | Service, persistence, adapters, and APIs                                   |
 | [Feature status and validation](docs/product-status.md)  | Implementation scope, verification records, and open work                  |
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, change scope, and verification requirements.
 
 ## Discussion and learning
 

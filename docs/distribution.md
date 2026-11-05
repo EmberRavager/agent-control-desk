@@ -1,10 +1,10 @@
 # 安装与构建分发包
 
-当前版本为 0.1.9 测试版，提供 Mac ARM64 的 DMG 和 ZIP。支持 Agent 优先级、个人记忆和中英文界面；新增历史证据补查及 Codex 隔离核实，修复待检查任务无法结束的问题。安装包在隔离数据目录核验包内 Node、SQLite、原生模块与后台启动、退出流程。
+当前版本为 0.1.9 测试版，Mac ARM64 的 DMG、ZIP 和 CLI 包已在本机生成，尚待上传发布。支持 Agent 优先级、个人记忆和中英文界面；新增历史证据补查及 Codex 隔离核实，修复待检查任务无法结束的问题。安装包在隔离数据目录核验包内 Node、SQLite、原生模块与后台启动、退出流程。
 
 ## 安装方式
 
-从 [v0.1.9 发布页](https://github.com/EmberRavager/agent-control-desk/releases/tag/v0.1.9) 下载 DMG、ZIP 或 CLI 包，并可使用 SHA256SUMS 核对文件。
+在 [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) 查看已发布版本。v0.1.9 当前尚未上传，发布后可从对应版本下载 DMG、ZIP 或 CLI 包，并使用随包提供的 SHA256SUMS 核对文件；此前可[从源码构建](#从源码构建)。
 
 Mac 的 DMG 中包含 `Agent Control Desk.app`，复制到 Applications 后打开；ZIP 也包含同一应用。桌面包自带 Electron/Node，不需要另外安装 Node、项目依赖或 TypeScript。当前本机产物仅作 ad-hoc 签名，没有 Developer ID 签名与 Apple 公证，作为测试版提供。
 
@@ -18,7 +18,7 @@ acd
 
 CLI 安装只获取生产依赖，发布包不包含 TypeScript 源码或 `tsx`。执行 Agent 的安装、登录与模型配置仍由其原生工具管理；安装 ACD 不会自动安装或勾选这些 Agent。
 
-普通启动使用默认数据目录，CLI 与桌面端共用：macOS 为 `~/Library/Application Support/agent-control-desk`，Windows 为 `%LOCALAPPDATA%/agent-control-desk`。源码测试的 `ACD_DATA_DIR` 覆盖不会自动迁移到默认目录。API Key 和微信登录保留在操作系统凭证存储中。
+普通启动使用同一个正式数据目录，CLI、桌面端与后台服务共用：macOS 为 `~/Library/Application Support/agent-control-desk`，Windows 为 `%LOCALAPPDATA%/agent-control-desk`。源码测试的 `ACD_DATA_DIR` 覆盖不会自动迁移到默认目录；各入口使用不同目录时，任务和对话也会分开。API Key 和微信登录保留在操作系统凭证存储中，其中微信凭证账户按数据目录隔离，迁移数据后需重新登录或单独迁移对应系统凭证。
 
 ## 从源码构建
 
@@ -48,7 +48,15 @@ npm run build
 CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --config electron-builder.cjs --mac --publish never -c.mac.identity=- -c.mac.notarize=false
 ```
 
-测试安装包发布在 GitHub Releases。正式分发仍需完成 Developer ID 签名与 Apple 公证，以及 Windows 构建、签名和安装升级验收。当前没有配置自动更新，CLI 包通过 Release 附件分发。
+测试安装包计划通过 GitHub Releases 发布，v0.1.9 当前尚待上传。正式分发仍需完成 Developer ID 签名与 Apple 公证，以及 Windows 构建、签名和安装升级验收。当前没有配置自动更新，CLI 包通过 Release 附件分发。
+
+## GitHub 自动发布
+
+仓库包含分支与 PR 检查工作流，以及独立的 Mac ARM64 测试版发布工作流。发布前更新 `package.json` 与锁文件中的版本，并提交到 GitHub。推送对应 `vX.Y.Z` 标签后，发布工作流会在原生 ARM64 runner 上安装锁定依赖、运行测试、构建 DMG/ZIP 与 CLI 包，并使用隔离数据目录验收包内后台。
+
+全部检查通过后才生成 SHA256SUMS，先上传到草稿 Release，再发布为预发行版。工作流使用本次 GitHub Actions 的仓库令牌，不依赖维护者本机的 `gh` 登录；需要仓库允许工作流写入 Releases。也可从 Actions 手动选择已有版本标签重试。已公开的同名 Release 会拒绝覆盖，需创建新版本。
+
+当前工作流已加入源码，GitHub 托管 runner 的实际构建和附件下载仍需在首次发布时核验。发布完成前，README 仅链接 Releases 页面，不承诺某个附件已经存在。
 
 ## 可重复验收
 

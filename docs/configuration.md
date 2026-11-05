@@ -72,9 +72,9 @@ acd agents default none --project /absolute/path/to/project
 | Windows | `%LOCALAPPDATA%/agent-control-desk`                |
 | Linux   | `~/.local/share/agent-control-desk`                |
 
-桌面“设置 → 本地服务与数据”可查看数据位置并打开文件夹。开发或隔离测试可通过 `ACD_DATA_DIR` 使用独立目录；`ACD_PORT` 可覆盖默认本机端口 `4317`。
+桌面“设置 → 本地服务与数据”可查看数据位置并打开文件夹。桌面、CLI 与后台服务正常启动时共用上述正式目录；只有使用同一目录，才会看到同一份任务、对话和配置。开发或隔离测试可通过 `ACD_DATA_DIR` 使用独立目录；`ACD_PORT` 可覆盖默认本机端口 `4317`。覆盖目录与正式目录不会自动合并，切换目录前请先核对数据位置。
 
-目录包含任务与配置数据库 `state.sqlite`、SQLite WAL 文件、总控对话 `conversation.jsonl`，以及服务描述和锁文件。总控 Key 不写入 SQLite 或对话日志，而通过 `@napi-rs/keyring` 使用系统凭证存储。模型 Key 按接口来源（origin）区分条目，切换数据目录不会自动创建新的模型凭证账户；微信登录使用独立的凭证管理。
+目录包含任务与配置数据库 `state.sqlite`、SQLite WAL 文件、总控对话 `conversation.jsonl`，以及服务描述和锁文件。总控 Key 不写入 SQLite 或对话日志，而通过 `@napi-rs/keyring` 使用系统凭证存储。模型 Key 按接口来源（origin）区分条目，切换数据目录不会自动创建新的模型凭证账户；微信登录使用独立的凭证管理，凭证账户按数据目录隔离。迁移数据文件不会自动迁移微信登录，需重新登录或单独迁移对应系统凭证。
 
 运行时描述含本地客户端认证 token，不应分享或上传。备份时整体保存数据目录，不要只复制一个数据库文件；系统凭证和桌面客户端草稿不包含在该目录备份中。迁移与升级说明见 [安装与分发](distribution.md)，草稿恢复见 [消息恢复](message-recovery.md)。
 

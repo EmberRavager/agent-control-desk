@@ -221,7 +221,7 @@ export class Runtime extends EventEmitter {
     snapshot.notifications = noticeFeed(this.store, snapshot);
     return snapshot;
   }
-  private stateSnapshot(): Snapshot {
+  private stateSnapshot(scope: "recent" | "all" = "recent"): Snapshot {
     const snapshot: Snapshot = {
       environment: this.environment,
       preferences: this.preferences(),
@@ -236,7 +236,7 @@ export class Runtime extends EventEmitter {
       allocationSettings: this.allocationSettings(),
       tasks: this.store.list("tasks"),
       messages: this.store
-        .history()
+        .history(scope)
         .filter(
           (message) =>
             message.completion?.status !== "withheld" &&
@@ -1025,7 +1025,7 @@ export class Runtime extends EventEmitter {
           throw Error("历史查询不能与任务操作同时执行");
         const sourceId = targetTaskId || lookup.sourceId;
         const history = lookupHistory(
-          this.snapshot(),
+          this.stateSnapshot("all"),
           lookup.type === "history" ? lookup.query : taskText,
           cwd,
           sourceId,

@@ -2,11 +2,11 @@
 
 [English](README.md) | **简体中文**
 
-[![下载 Mac 桌面端](https://img.shields.io/badge/macOS_Apple_Silicon-%E4%B8%8B%E8%BD%BD_DMG-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.9/Agent-Control-Desk-0.1.9-mac-arm64.dmg)
+[![GitHub 发布页](https://img.shields.io/badge/macOS_Apple_Silicon-Releases-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases)
 
-[下载 ZIP 压缩包](https://github.com/EmberRavager/agent-control-desk/releases/download/v0.1.9/Agent-Control-Desk-0.1.9-mac-arm64.zip) · [全部版本](https://github.com/EmberRavager/agent-control-desk/releases)
+v0.1.9 安装包已在本机生成，尚待发布。可在 [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) 查看已发布的下载，或先[从源码构建](docs/distribution.md#从源码构建)。
 
-v0.1.9 测试版，适用于 Apple Silicon（M1 及更新芯片）的 Mac。应用采用 ad-hoc 签名，尚未完成 Apple 公证。
+v0.1.9 测试包适用于 Apple Silicon（M1 及更新芯片）的 Mac。应用采用 ad-hoc 签名，尚未完成 Apple 公证。
 
 **One conversation. All your agents.**
 
@@ -14,7 +14,7 @@ Agent Control Desk（ACD）是一个在本机运行的 Agent 调控中心，核�
 
 每项任务拥有自己的执行会话。你可以继续交代新任务，也可以为已有任务补充要求、回答问题、请求停止或继续修改。桌面端、CLI 和个人微信入口共用同一个本地后台与任务状态。
 
-ACD 当前处于本地测试阶段，已提供 Mac ARM64 桌面安装包。
+ACD 当前处于本地测试阶段，Mac ARM64 桌面安装包已在本机生成，尚待发布。
 
 ## 为什么做 ACD
 
@@ -39,7 +39,8 @@ ACD 当前处于本地测试阶段，已提供 Mac ARM64 桌面安装包。
 - **一个入口，分别跟进。** 新任务使用独立的执行会话，各自保存目标、进展和结果；继续已有任务时沿用原 Agent 和会话。
 - **并行处理多个项目。** 不重叠的工作目录可以并行；相同目录或父子目录的任务排队等待，期间仍可发送消息。已观测到的原生 Codex 执行也纳入目录占用检查。
 - **集中处理问题。** 从同一个总控回答任务中的补充问题和执行端支持的授权请求，查看需要你处理的事项。
-- **跟进到交付。** 总控对照任务目标和公开结果，在判断有新交付时生成摘要与下一步建议。托管任务先进入待检查状态，由你确认完成；也可以继续修改。建议不会自动启动新任务。
+- **跟进到交付。** 总控对照任务目标和公开结果，在判断有新交付时生成摘要与下一步建议。产生工作交付的任务先进入待检查状态，由你确认完成；也可以继续修改。回答类任务在返回答复后直接完成。建议不会自动启动新任务。
+- **核实历史工作。** 证据不足时，总控先从本机保存的记录中补查有限片段；已明确的来源仍缺少答案时，可向 Codex 的隔离只读分支核实。其他 Agent 暂不支持这类核实。详见[历史补查与执行者核实](docs/routing.md#历史补查与执行者核实)。
 - **查看原生会话。** 同步已接入 Codex 的当前会话状态，通过任务标题、目标、当前步骤、阻塞和下一步了解执行情况。这部分为只读观察，不导入完整聊天历史。
 - **保留对话与草稿。** 任务和总控对话保存到本机，草稿及未确认发送的记录可在重开窗口后恢复。支持任务搜索和定位，以及对尚未进入动作应用阶段的失败消息重新判断。
 
@@ -71,7 +72,7 @@ ACD 当前处于本地测试阶段，已提供 Mac ARM64 桌面安装包。
 
 ### 1. 安装 ACD
 
-Mac ARM64 使用 DMG 或 ZIP 中的 `Agent Control Desk.app`，复制到 Applications 后打开。桌面包自带运行时，无需安装 Node.js。本地构建的安装包位于 `release/`；版本、构建和升级步骤见 [安装与分发](docs/distribution.md)。
+Mac ARM64 安装包发布后，使用 DMG 或 ZIP 中的 `Agent Control Desk.app`，复制到 Applications 后打开。桌面包自带运行时，无需安装 Node.js。本地构建的安装包位于 `release/`；版本、构建和升级步骤见 [安装与分发](docs/distribution.md)。
 
 当前安装包用于本地测试，使用 ad-hoc 签名，尚未完成 Apple 公证。Windows 原生构建与运行仍待验收。
 
@@ -193,3 +194,5 @@ npm run desktop
 欢迎交流 Agent 路由、多会话管理和本地助手工具的使用体验、设计思路与实现问题。
 
 交流学习邮箱：**[emberravager@gmail.com](mailto:emberravager@gmail.com)**
+
+参与开发请先看[贡献指南](CONTRIBUTING.md)，了解本地启动、修改范围和验证要求。
