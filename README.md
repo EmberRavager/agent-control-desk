@@ -4,9 +4,9 @@
 
 [![GitHub Releases](https://img.shields.io/badge/macOS_Apple_Silicon-Releases-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases)
 
-v0.1.9 packages have been built locally and are awaiting publication. Check [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) for available downloads, or [build from source](docs/distribution.md#从源码构建).
+Check [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) for available test builds, or [build from source](docs/distribution.md#从源码构建).
 
-v0.1.9 test packages target Macs with Apple Silicon (M1 or later). The app is ad-hoc signed and has not been notarized by Apple.
+v0.1.10 test packages target Macs with Apple Silicon (M1 or later). The app is ad-hoc signed and has not been notarized by Apple.
 
 **One conversation. All your agents.**
 
@@ -14,7 +14,7 @@ Agent Control Desk (ACD) is a local control center for **task routing and multi-
 
 Each task has its own execution session. Keep sending new work, add requirements to an existing task, answer questions, request a stop, or continue a revision. The desktop app, CLI, and personal WeChat channel share the same local service and task state.
 
-ACD is currently in local testing. A macOS ARM64 desktop package has been built and is awaiting publication.
+ACD is currently in local testing. The current desktop build target is macOS ARM64.
 
 ## Why I built ACD
 
@@ -202,3 +202,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, change scope, and verifi
 For discussion and shared learning about agent routing, session management, and local agent tools, reach me at:
 
 Email for discussion and shared learning: **[emberravager@gmail.com](mailto:emberravager@gmail.com)**
+
+## License
+
+[MIT](LICENSE) © 2026 EmberRavager.

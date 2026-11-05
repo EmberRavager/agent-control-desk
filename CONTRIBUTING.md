@@ -1,6 +1,6 @@
 # Contributing to ACD
 
-ACD is a personal project for routing work to local agents and following their sessions. Contributions that make the existing workflow easier to use and verify are welcome.
+ACD is a personal open-source project for routing work to local agents and following their sessions. Contributions that make the existing workflow easier to use and verify are welcome.
 
 ## Run locally
 
@@ -34,3 +34,7 @@ Do not attach personal conversation logs, databases, runtime descriptors, API ke
 Mac Apple Silicon test packages are the current verified build target. Windows and Mac Intel support require native validation before being listed as available downloads. Existing protocol tests do not establish readiness of a real account or a particular model.
 
 See [development](docs/development.md), [routing](docs/routing.md), and [feature status](docs/product-status.md) for the current contracts and verification boundaries.
+
+## License
+
+ACD is distributed under the [MIT License](LICENSE). Contributions are made under the same license.

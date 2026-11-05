@@ -7,6 +7,7 @@ module.exports = {
   directories: { output: "release" },
   extraMetadata: { main: "apps/desktop/main.cjs" },
   files: [
+    "LICENSE",
     "apps/desktop/*.cjs",
     "!apps/desktop/*.test.cjs",
     "apps/desktop/assets/**",

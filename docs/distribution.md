@@ -1,17 +1,17 @@
 # 安装与构建分发包
 
-当前版本为 0.1.9 测试版，Mac ARM64 的 DMG、ZIP 和 CLI 包已在本机生成，尚待上传发布。支持 Agent 优先级、个人记忆和中英文界面；新增历史证据补查及 Codex 隔离核实，修复待检查任务无法结束的问题。安装包在隔离数据目录核验包内 Node、SQLite、原生模块与后台启动、退出流程。
+当前版本为 0.1.10 测试版，发布目标为 Mac ARM64 的 DMG、ZIP 和 CLI 包。支持 Agent 优先级、个人记忆和中英文界面；新增历史证据补查及 Codex 隔离核实，修复待检查任务无法结束的问题。安装包在隔离数据目录核验包内 Node、SQLite、原生模块与后台启动、退出流程。
 
 ## 安装方式
 
-在 [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) 查看已发布版本。v0.1.9 当前尚未上传，发布后可从对应版本下载 DMG、ZIP 或 CLI 包，并使用随包提供的 SHA256SUMS 核对文件；此前可[从源码构建](#从源码构建)。
+在 [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) 查看已发布版本。发布后可从对应版本下载 DMG、ZIP 或 CLI 包，并使用随包提供的 SHA256SUMS 核对文件；此前可[从源码构建](#从源码构建)。
 
 Mac 的 DMG 中包含 `Agent Control Desk.app`，复制到 Applications 后打开；ZIP 也包含同一应用。桌面包自带 Electron/Node，不需要另外安装 Node、项目依赖或 TypeScript。当前本机产物仅作 ad-hoc 签名，没有 Developer ID 签名与 Apple 公证，作为测试版提供。
 
-CLI 包为 `agent-control-desk-0.1.9.tgz`，需要 Node.js >=22.13.0 和 npm：
+CLI 包为 `agent-control-desk-0.1.10.tgz`，需要 Node.js >=22.13.0 和 npm：
 
 ```sh
-npm install --global ./agent-control-desk-0.1.9.tgz
+npm install --global ./agent-control-desk-0.1.10.tgz
 acd --help
 acd
 ```
@@ -48,7 +48,7 @@ npm run build
 CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --config electron-builder.cjs --mac --publish never -c.mac.identity=- -c.mac.notarize=false
 ```
 
-测试安装包计划通过 GitHub Releases 发布，v0.1.9 当前尚待上传。正式分发仍需完成 Developer ID 签名与 Apple 公证，以及 Windows 构建、签名和安装升级验收。当前没有配置自动更新，CLI 包通过 Release 附件分发。
+测试安装包通过 GitHub Releases 发布。正式分发仍需完成 Developer ID 签名与 Apple 公证，以及 Windows 构建、签名和安装升级验收。当前没有配置自动更新，CLI 包通过 Release 附件分发。
 
 ## GitHub 自动发布
 

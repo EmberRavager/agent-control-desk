@@ -1,6 +1,6 @@
 {
   "name": "agent-control-desk",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "type": "module",
   "description": "One conversation. All your agents.",
@@ -56,10 +56,14 @@
     "apps/cli/acd.mjs",
     "dist/runtime/**",
     "README.md",
-    "docs/**"
+    "docs/**",
+    "README.zh-CN.md",
+    "CONTRIBUTING.md",
+    "LICENSE"
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/EmberRavager/agent-control-desk.git"
-  }
+  },
+  "license": "MIT"
 }

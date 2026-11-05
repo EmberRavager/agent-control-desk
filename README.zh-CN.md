@@ -4,9 +4,9 @@
 
 [![GitHub 发布页](https://img.shields.io/badge/macOS_Apple_Silicon-Releases-4541d8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/EmberRavager/agent-control-desk/releases)
 
-v0.1.9 安装包已在本机生成，尚待发布。可在 [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) 查看已发布的下载，或先[从源码构建](docs/distribution.md#从源码构建)。
+可在 [GitHub Releases](https://github.com/EmberRavager/agent-control-desk/releases) 查看已发布的下载，或先[从源码构建](docs/distribution.md#从源码构建)。
 
-v0.1.9 测试包适用于 Apple Silicon（M1 及更新芯片）的 Mac。应用采用 ad-hoc 签名，尚未完成 Apple 公证。
+v0.1.10 测试包适用于 Apple Silicon（M1 及更新芯片）的 Mac。应用采用 ad-hoc 签名，尚未完成 Apple 公证。
 
 **One conversation. All your agents.**
 
@@ -14,7 +14,7 @@ Agent Control Desk（ACD）是一个在本机运行的 Agent 调控中心，核�
 
 每项任务拥有自己的执行会话。你可以继续交代新任务，也可以为已有任务补充要求、回答问题、请求停止或继续修改。桌面端、CLI 和个人微信入口共用同一个本地后台与任务状态。
 
-ACD 当前处于本地测试阶段，Mac ARM64 桌面安装包已在本机生成，尚待发布。
+ACD 当前处于本地测试阶段，当前桌面构建目标为 Mac ARM64。
 
 ## 为什么做 ACD
 
@@ -196,3 +196,7 @@ npm run desktop
 交流学习邮箱：**[emberravager@gmail.com](mailto:emberravager@gmail.com)**
 
 参与开发请先看[贡献指南](CONTRIBUTING.md)，了解本地启动、修改范围和验证要求。
+
+## 许可证
+
+[MIT](LICENSE) © 2026 EmberRavager。
